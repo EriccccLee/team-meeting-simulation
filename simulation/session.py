@@ -8,9 +8,22 @@ plan.md §4-5 참조.
 
 from __future__ import annotations
 
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import Callable
+
+
+def _make_slug(text: str) -> str:
+    """topic 텍스트를 ASCII 안전 파일명 slug로 변환."""
+    try:
+        from unidecode import unidecode
+        text = unidecode(text)
+    except ImportError:
+        # unidecode 없으면 비ASCII 문자 제거
+        text = re.sub(r"[^\x00-\x7F]+", "", text)
+    slug = re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
+    return slug[:30] or "meeting"
 
 
 class MeetingSession:
@@ -86,12 +99,7 @@ class MeetingSession:
             consensus:         ModeratorAgent 가 작성한 합의안 전문
         """
         timestamp = self.started_at.strftime("%Y-%m-%d-%H-%M")
-        topic_slug = (
-            self.topic[:20]
-            .replace(" ", "-")
-            .replace("/", "-")
-            .lower()
-        )
+        topic_slug = _make_slug(self.topic)
         filename = f"{timestamp}-{topic_slug}.md"
         filepath = self.output_dir / filename
 
