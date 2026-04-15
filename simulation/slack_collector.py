@@ -383,3 +383,78 @@ def write_profile(
         )
 
     return member_dir
+
+
+# ── 추출 오케스트레이터 ───────────────────────────────────────────────────────
+
+def _run_extraction(
+    members: list[dict],    # [{"user_id", "slug", "display_name"}, ...]
+    token: str,
+    channels: list[str],
+    q: stdlib_queue.SimpleQueue,
+    team_skills_dir: Path,
+) -> None:
+    """팀원 목록을 순차 처리하며 SSE 이벤트를 q에 emit.
+
+    각 팀원당: 수집 → 업무분석 → 페르소나분석 → 파일생성
+    오류 발생 시 해당 멤버 스킵 후 다음 멤버 계속 진행.
+    마지막에 None sentinel을 q에 넣어 SSE generator 종료 신호 전달.
+    """
+    from simulation.model_client import ClaudeCodeModelClient
+
+    model_client = ClaudeCodeModelClient(timeout=180)
+    total = len(members)
+
+    def emit(event: dict) -> None:
+        q.put(event)
+
+    try:
+        for i, member in enumerate(members, start=1):
+            user_id = member["user_id"]
+            slug = member["slug"]
+            display_name = member["display_name"]
+
+            # 1. 메시지 수집
+            emit({"type": "collecting", "slug": slug, "current": i, "total": total})
+            try:
+                messages = collect_user_messages(user_id, channels, token)
+            except Exception as e:
+                emit({"type": "error", "message": f"{slug}: 메시지 수집 실패 — {e}", "slug": slug})
+                continue
+
+            if not messages:
+                emit({"type": "error", "message": f"{slug}: 필터링 후 메시지가 없습니다.", "slug": slug})
+                continue
+
+            # 2. 업무 분석
+            emit({"type": "analyzing", "slug": slug, "step": "work", "current": i, "total": total})
+            try:
+                part_a = analyze_work(messages, model_client)
+            except Exception as e:
+                emit({"type": "error", "message": f"{slug}: 업무 분석 실패 — {e}", "slug": slug})
+                continue
+
+            # 3. 페르소나 분석
+            emit({"type": "analyzing", "slug": slug, "step": "persona", "current": i, "total": total})
+            try:
+                part_b = analyze_persona(messages, model_client)
+            except Exception as e:
+                emit({"type": "error", "message": f"{slug}: 페르소나 분석 실패 — {e}", "slug": slug})
+                continue
+
+            # 4. 파일 생성
+            emit({"type": "writing", "slug": slug, "current": i, "total": total})
+            try:
+                write_profile(slug, display_name, part_a, part_b, team_skills_dir, raw_messages=messages)
+            except Exception as e:
+                emit({"type": "error", "message": f"{slug}: 파일 저장 실패 — {e}", "slug": slug})
+                continue
+
+            emit({"type": "member_done", "slug": slug, "current": i, "total": total})
+
+        emit({"type": "done"})
+
+    except Exception as e:
+        emit({"type": "error", "message": str(e)})
+    finally:
+        q.put(None)  # SSE generator 종료 신호
