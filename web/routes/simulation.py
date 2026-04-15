@@ -211,6 +211,7 @@ def _run_simulation(
     SSE generator 쪽에서 get_nowait() 폴링으로 소비함.
     """
     q = _sessions[session_id]
+    _cancel_flags[session_id] = False
     events_log: list[dict] = []  # 히스토리 저장용
 
     def emit(event: dict) -> None:
@@ -223,6 +224,9 @@ def _run_simulation(
         total = len(raw_files)
 
         for idx, (filename, raw) in enumerate(raw_files, start=1):
+            if _cancel_flags.get(session_id):
+                emit({"type": "cancelled"})
+                return
             ext = Path(filename).suffix.lower()
             # default-arg trick prevents late-binding closure issues
             def pre(msg: str, done: bool = False,
@@ -271,8 +275,6 @@ def _run_simulation(
                 file_contents[filename] = decode_bytes(raw)
 
         # ── 2. 시뮬레이션 실행 ────────────────────────────────────────────────
-        # cancel flag 등록
-        _cancel_flags[session_id] = False
         model_client = ClaudeCodeModelClient()
         agents: list[MeetingAgent] = []
         for slug in participant_slugs:

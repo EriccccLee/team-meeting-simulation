@@ -9,6 +9,7 @@ plan.md §4-4 참조.
 from __future__ import annotations
 
 import logging
+import os
 import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
@@ -66,10 +67,10 @@ class MeetingOrchestrator:
 
         self._phase1(topic)
         if self._cancel_check():
-            return MeetingResult(output_file=Path("/dev/null"), consensus="", history=list(self.history))
+            return MeetingResult(output_file=Path(os.devnull), consensus="", history=list(self.history))
         self._phase2(topic)
         if self._cancel_check():
-            return MeetingResult(output_file=Path("/dev/null"), consensus="", history=list(self.history))
+            return MeetingResult(output_file=Path(os.devnull), consensus="", history=list(self.history))
         consensus = self._phase3(topic)
 
         participants_info = [
