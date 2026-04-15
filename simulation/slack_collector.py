@@ -472,6 +472,41 @@ _WORK_EXTRACT_PROMPT = """\
 각 항목에 실제 메시지를 인용해 근거를 제시하세요.
 """
 
+ROLE_SPECIFIC_PROMPTS: dict[str, str] = {
+    "backend": """\
+[백엔드 추가 분석]
+- 명명 규범: 함수·변수·API 네이밍 패턴
+- 인터페이스 설계 선호도: REST vs GraphQL, 동기 vs 비동기
+- DB 조작 방식: ORM 선호 여부, 쿼리 최적화 접근
+- Code Review 스타일: 어떤 점을 주로 지적하는가
+""",
+    "frontend": """\
+[프론트엔드 추가 분석]
+- 컴포넌트 설계 패턴: 재사용성 vs 특화, 상태 관리 방식
+- 번들 최적화 관심도: 성능 지표 언급 빈도
+- 접근성·UX 감수성: 사용자 경험 관련 발언
+""",
+    "ml": """\
+[AI/ML 추가 분석]
+- 실험 설계 방식: 가설 설정, 지표 정의, 재현성 관리
+- 모델 배포 관심도: MLOps, 모니터링, A/B 테스트
+- 데이터 품질에 대한 태도: 데이터 검증, 전처리 선호
+""",
+    "pm": """\
+[PM 추가 분석]
+- PRD 구조화 방식: 문제 정의 vs 솔루션 우선
+- 우선순위 산정 방법: 데이터 기반 vs 직관, 스테이크홀더 조율
+- 데이터 활용도: 지표 언급, 분석 요청 빈도
+""",
+    "data": """\
+[데이터 분석 추가 분석]
+- SQL 스타일: 복잡 쿼리 선호, 서브쿼리 vs CTE
+- 분석 프레임워크: 가설 검증 방식, 통계적 사고
+- 시각화 선호: 도구 선택(Tableau, plotly 등), 청중 의식
+""",
+    "general": "",
+}
+
 _WORK_BUILD_PROMPT = """\
 다음은 한 팀원의 Slack 메시지 분석 결과입니다. 이를 바탕으로 '{name}'의 업무 역량 프로필(Part A)을 **한국어 마크다운**으로 작성하세요.
 
@@ -510,10 +545,15 @@ def extract_work_patterns(
     messages: list[dict],
     model_client,
     max_messages: int = _DEFAULT_MAX_MESSAGES,
+    role: str = "general",
 ) -> str:
-    """Stage 1: 메시지에서 업무 패턴을 구조화 데이터로 추출."""
+    """Stage 1: 메시지에서 업무 패턴을 구조화 데이터로 추출.
+
+    role: "backend", "frontend", "ml", "pm", "data", "general" 중 하나.
+    """
     msg_block = _format_messages_for_llm(messages, max_messages)
-    prompt = _WORK_EXTRACT_PROMPT + f"\n\n## 메시지\n\n{msg_block}"
+    role_prompt = ROLE_SPECIFIC_PROMPTS.get(role, "")
+    prompt = _WORK_EXTRACT_PROMPT + role_prompt + f"\n\n## 메시지\n\n{msg_block}"
     return model_client.call(
         system_prompt=_WORK_SYSTEM,
         messages=[{"slug": "user", "speaker": "user", "content": prompt}],
@@ -533,10 +573,12 @@ def extract_persona_patterns(
     messages: list[dict],
     model_client,
     max_messages: int = _DEFAULT_MAX_MESSAGES,
+    impression: str = "",
 ) -> str:
     """Stage 1: 메시지에서 페르소나 패턴을 구조화 데이터로 추출."""
     msg_block = _format_messages_for_llm(messages, max_messages)
-    prompt = _PERSONA_EXTRACT_PROMPT + f"\n\n## 메시지\n\n{msg_block}"
+    impression_ctx = f"\n\n[팀원 인상 메모: {impression}]\n" if impression.strip() else ""
+    prompt = _PERSONA_EXTRACT_PROMPT + impression_ctx + f"\n\n## 메시지\n\n{msg_block}"
     return model_client.call(
         system_prompt=_PERSONA_SYSTEM,
         messages=[{"slug": "user", "speaker": "user", "content": prompt}],
@@ -679,6 +721,8 @@ def _run_extraction(
             user_id = member["user_id"]
             slug = member["slug"]
             display_name = member["display_name"]
+            role = member.get("role", "general")
+            impression = member.get("impression", "")
 
             # 1. 메시지 수집
             emit({"type": "collecting", "slug": slug, "current": i, "total": total})
@@ -695,7 +739,7 @@ def _run_extraction(
             # 2. 업무 패턴 추출 (Stage 1)
             emit({"type": "analyzing", "slug": slug, "step": "work_extract", "current": i, "total": total})
             try:
-                work_analysis = extract_work_patterns(messages, model_client, max_messages=max_messages)
+                work_analysis = extract_work_patterns(messages, model_client, max_messages=max_messages, role=role)
             except Exception as e:
                 emit({"type": "error", "message": f"{slug}: 업무 패턴 추출 실패 — {e}", "slug": slug})
                 continue
@@ -711,7 +755,10 @@ def _run_extraction(
             # 4. 페르소나 패턴 추출 (Stage 1)
             emit({"type": "analyzing", "slug": slug, "step": "persona_extract", "current": i, "total": total})
             try:
-                persona_analysis = extract_persona_patterns(messages, model_client, max_messages=max_messages)
+                persona_analysis = extract_persona_patterns(
+                    messages, model_client, max_messages=max_messages,
+                    impression=impression,
+                )
             except Exception as e:
                 emit({"type": "error", "message": f"{slug}: 페르소나 패턴 추출 실패 — {e}", "slug": slug})
                 continue

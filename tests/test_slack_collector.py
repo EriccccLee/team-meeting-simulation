@@ -493,3 +493,31 @@ def test_build_persona_md_formats_with_name():
     call_kwargs = str(mock_client.call.call_args)
     assert "김철수" in call_kwargs
     assert "페르소나 분석 결과" in call_kwargs
+
+
+def test_extract_work_patterns_appends_role_prompt():
+    """role='backend'이면 역할별 추가 프롬프트가 포함된다."""
+    messages = [
+        {"content": "API 설계했어요", "ts": "1", "channel": "C001", "is_thread_starter": False},
+    ]
+    mock_client = MagicMock()
+    mock_client.call.return_value = "분석"
+
+    extract_work_patterns(messages, mock_client, max_messages=10, role="backend")
+
+    call_args = str(mock_client.call.call_args)
+    assert "백엔드 추가 분석" in call_args
+
+
+def test_extract_work_patterns_general_no_role_prompt():
+    """role='general'이면 역할별 추가 프롬프트가 없다."""
+    messages = [
+        {"content": "일반 작업했어요", "ts": "1", "channel": "C001", "is_thread_starter": False},
+    ]
+    mock_client = MagicMock()
+    mock_client.call.return_value = "분석"
+
+    extract_work_patterns(messages, mock_client, max_messages=10, role="general")
+
+    call_args = str(mock_client.call.call_args)
+    assert "추가 분석" not in call_args
