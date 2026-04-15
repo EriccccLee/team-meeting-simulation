@@ -137,12 +137,20 @@ async function scrollToBottom() {
   }
 }
 
-onMounted(() => {
+onMounted(async () => {
   if (!sessionId) { router.push('/'); return }
 
-  // 참여자 정보 복원
+  // 참여자 정보 복원 — sessionStorage 없으면 API fallback
   try {
-    participants.value = JSON.parse(sessionStorage.getItem('participants') || '[]')
+    const cached = JSON.parse(sessionStorage.getItem('participants') || '[]')
+    if (cached.length > 0) {
+      participants.value = cached
+    } else {
+      const res = await fetch('/api/participants')
+      if (res.ok) {
+        participants.value = await res.json()
+      }
+    }
   } catch (_) {}
 
   // topic 복원
