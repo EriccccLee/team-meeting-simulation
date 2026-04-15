@@ -47,7 +47,7 @@ _EMOJI_RE = re.compile(
 _MENTION_RE = re.compile(r"<@[A-Z0-9]+(?:\|[^>]*)?>")
 
 # 커스텀 이모지: :custom-emoji:
-_SLACK_CUSTOM_EMOJI_RE = re.compile(r":[a-z0-9_\-+]+:")
+_SLACK_CUSTOM_EMOJI_RE = re.compile(r":[a-z0-9_\-+]{2,}:", re.IGNORECASE)  # min 2 chars, case-insensitive
 
 # Slack URL: <http://...> 또는 <https://...>
 _SLACK_LINK_RE = re.compile(r"<https?://[^>]+>")
