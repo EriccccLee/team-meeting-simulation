@@ -101,14 +101,18 @@ async def run_simulation(
         raw = await upload.read()
         if upload.filename and upload.filename.lower().endswith(".pdf"):
             # PDF는 임시 파일로 저장 후 _load_file_contents 로 변환
-            with tempfile.NamedTemporaryFile(
-                suffix=".pdf", delete=False, dir=str(_ROOT)
-            ) as tmp:
-                tmp.write(raw)
-                tmp_path = tmp.name
-            loaded = _load_file_contents([tmp_path])
-            file_contents.update(loaded)
-            Path(tmp_path).unlink(missing_ok=True)
+            tmp_path = None
+            try:
+                with tempfile.NamedTemporaryFile(
+                    suffix=".pdf", delete=False, dir=str(_ROOT)
+                ) as tmp:
+                    tmp.write(raw)
+                    tmp_path = tmp.name
+                loaded = _load_file_contents([tmp_path])
+                file_contents.update(loaded)
+            finally:
+                if tmp_path:
+                    Path(tmp_path).unlink(missing_ok=True)
         else:
             name = upload.filename or "attachment.txt"
             try:
@@ -117,7 +121,8 @@ async def run_simulation(
                 file_contents[name] = raw.decode("cp949", errors="replace")
 
     # 동기 orchestrator 를 별도 스레드에서 실행
-    loop.run_in_executor(
+    # Future를 ensure_future로 감싸 unhandled exception 경고 방지
+    future = loop.run_in_executor(
         None,
         _run_simulation,
         session_id,
@@ -127,6 +132,7 @@ async def run_simulation(
         file_contents,
         loop,
     )
+    asyncio.ensure_future(future)
 
     return {"session_id": session_id}
 
