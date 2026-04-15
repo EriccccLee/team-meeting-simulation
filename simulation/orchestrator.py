@@ -101,6 +101,7 @@ class MeetingOrchestrator:
         agent_map = {a.config.slug: a for a in self.agents}
         instruction = "다른 팀원의 의견에 반응하거나 새 논점을 제시하세요."
         last_slug: str | None = None
+        first_agent_call = True
 
         for _ in range(self.config.phase2_rounds):
             try:
@@ -116,7 +117,8 @@ class MeetingOrchestrator:
                 logger.warning("선택된 slug %r 가 참여자 목록에 없습니다 — 건너뜁니다", slug)
                 continue
 
-            response = self._call_agent(agent, topic, self.history, instruction)
+            response = self._call_agent(agent, topic, self.history, instruction, skip_delay=first_agent_call)
+            first_agent_call = False
             if response:
                 self.session.stream_message(agent.config.name, response, agent.config.slug)
                 self._add_agent(agent, response, phase=2)
@@ -132,8 +134,8 @@ class MeetingOrchestrator:
         instruction = (
             "최종 입장을 밝혀주세요: 동의/수정 요청/반대 중 하나와 이유를 말해주세요."
         )
-        for agent in self.agents:
-            response = self._call_agent(agent, topic, self.history, instruction)
+        for i, agent in enumerate(self.agents):
+            response = self._call_agent(agent, topic, self.history, instruction, skip_delay=(i == 0))
             if response:
                 self.session.stream_message(agent.config.name, response, agent.config.slug)
                 self._add_agent(agent, response, phase=3)
