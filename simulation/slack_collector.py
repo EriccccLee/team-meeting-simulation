@@ -2,14 +2,19 @@
 Slack 메시지 기반 팀원 SKILL.md 자동 추출 파이프라인.
 
 주요 함수:
-  generate_slug(display_name)         → 슬러그 문자열
-  _is_noise(text)                     → 노이즈 여부 bool
-  discover_users(channels, token)     → 후보 유저 목록
-  collect_user_messages(user_id, ...) → 유저 메시지 목록
-  analyze_work(messages, client)      → Part A 마크다운
-  analyze_persona(messages, client)   → Part B 마크다운
-  write_profile(slug, ...)            → 생성된 디렉터리 Path
-  _run_extraction(members, ...)       → None (SSE emit 포함)
+  generate_slug(display_name)              → 슬러그 문자열
+  _is_noise(text)                          → 노이즈 여부 bool
+  RateLimitedSlackClient(token)            → rate-limit 안전 Slack 클라이언트
+  discover_channels_for_user(user_id, ...) → Bot이 가입한 채널 중 user 채널 목록
+  discover_users(channels, token)          → 후보 유저 목록
+  collect_user_messages(user_id, ...)      → list[dict] 유저 메시지 목록
+  _format_messages_for_llm(messages, ...)  → LLM 입력용 가중치 포맷 문자열
+  extract_work_patterns(messages, ...)     → Stage 1: 업무 패턴 구조화 추출
+  build_work_md(analysis, ...)             → Stage 2: 업무 프로필 마크다운
+  extract_persona_patterns(messages, ...)  → Stage 1: 페르소나 패턴 구조화 추출
+  build_persona_md(analysis, ...)          → Stage 2: 페르소나 마크다운
+  write_profile(slug, ...)                 → 생성된 디렉터리 Path
+  _run_extraction(members, ...)            → None (SSE emit 포함)
 """
 from __future__ import annotations
 
@@ -429,17 +434,13 @@ def _format_messages_for_llm(
 
     t_budget = max_messages * 4 // 10
     l_budget = max_messages * 4 // 10
-    s_budget = max_messages - t_budget - l_budget  # remainder goes to short
 
     t_n = min(len(thread_msgs), t_budget)
-    l_n = min(len(long_msgs),   l_budget)
-    s_n = min(len(short_msgs),  s_budget)
-
-    # Redistribute unused thread slots to long, then unused long slots to short
-    unused_t = t_budget - t_n
-    unused_l = l_budget - l_n
-    l_n = min(len(long_msgs), l_budget + unused_t)
-    s_n = min(len(short_msgs), s_budget + unused_l + (l_budget + unused_t - l_n))
+    # Long gets its budget + any unused thread slots
+    l_n = min(len(long_msgs), l_budget + (t_budget - t_n))
+    # Short gets all remaining slots; if short is scarce, long absorbs the rest
+    s_n = min(len(short_msgs), max_messages - t_n - l_n)
+    l_n = min(len(long_msgs), max_messages - t_n - s_n)
 
     def fmt(m: dict) -> str:
         return f"[{m.get('ts', '')}][{m.get('channel', '')}] {m['content']}"
@@ -594,34 +595,6 @@ def build_persona_md(analysis: str, display_name: str, model_client) -> str:
     )
 
 
-def analyze_work(
-    messages: list[dict],
-    model_client,  # ClaudeCodeModelClient — 순환 임포트 방지로 타입 힌트 생략
-    max_messages: int = _DEFAULT_MAX_MESSAGES,
-) -> str:
-    """수집된 메시지 딕셔너리로 Part A (업무 프로필) 마크다운 생성."""
-    msg_block = _format_messages_for_llm(messages, max_messages)
-    prompt = WORK_ANALYSIS_PROMPT + f"\n\n## Slack 메시지 목록\n\n{msg_block}"
-    return model_client.call(
-        system_prompt=_WORK_SYSTEM,
-        messages=[{"slug": "user", "speaker": "user", "content": prompt}],
-    )
-
-
-def analyze_persona(
-    messages: list[dict],
-    model_client,
-    max_messages: int = _DEFAULT_MAX_MESSAGES,
-) -> str:
-    """수집된 메시지 딕셔너리로 Part B (페르소나) 마크다운 생성."""
-    msg_block = _format_messages_for_llm(messages, max_messages)
-    prompt = PERSONA_ANALYSIS_PROMPT + f"\n\n## Slack 메시지 목록\n\n{msg_block}"
-    return model_client.call(
-        system_prompt=_PERSONA_SYSTEM,
-        messages=[{"slug": "user", "speaker": "user", "content": prompt}],
-    )
-
-
 # ── 파일 쓰기 ─────────────────────────────────────────────────────────────────
 
 def _unique_slug(slug: str, team_skills_dir: Path) -> str:
@@ -694,7 +667,7 @@ def write_profile(
 # ── 추출 오케스트레이터 ───────────────────────────────────────────────────────
 
 def _run_extraction(
-    members: list[dict],    # [{"user_id", "slug", "display_name"}, ...]
+    members: list[dict],    # [{"user_id", "slug", "display_name", "role", "impression"}, ...]
     token: str,
     channels: list[str] | None,
     q: stdlib_queue.SimpleQueue,

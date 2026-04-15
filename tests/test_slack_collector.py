@@ -558,3 +558,14 @@ def test_extract_persona_patterns_whitespace_only_impression_suppressed():
 
     call_args = str(mock_client.call.call_args)
     assert "팀원 인상 메모" not in call_args
+
+
+def test_format_messages_fills_budget_single_category():
+    """메시지가 long 버킷에만 있어도 예산을 최대한 사용한다."""
+    msgs = [
+        {"content": "이것은 매우 긴 메시지입니다 " * 5, "ts": str(i), "channel": "C", "is_thread_starter": False}
+        for i in range(10)
+    ]
+    result = _format_messages_for_llm(msgs, max_messages=10)
+    lines = [line for line in result.split("\n") if line.startswith("[")]
+    assert len(lines) == 10  # all 10 messages should appear
