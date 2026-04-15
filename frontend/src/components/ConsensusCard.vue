@@ -1,0 +1,67 @@
+<template>
+  <div class="consensus-wrap fade-in-up">
+    <PhaseHeader label="최종 합의안" />
+    <div class="card">
+      <div class="card-header">
+        <span class="card-tag">CONSENSUS</span>
+        <span class="card-sub">팀 합의 결과</span>
+      </div>
+      <div class="card-body">
+        <p v-for="(line, i) in lines" :key="i" class="line" :class="{ empty: !line.trim() }">
+          <span v-if="line.trim()">{{ line }}</span>
+        </p>
+      </div>
+    </div>
+  </div>
+</template>
+
+<script setup>
+import { computed } from 'vue'
+import PhaseHeader from './PhaseHeader.vue'
+
+const props = defineProps({ content: { type: String, required: true } })
+
+const lines = computed(() => props.content.split('\n'))
+</script>
+
+<style scoped>
+.consensus-wrap { padding-bottom: 40px; }
+
+.card {
+  border: 1px solid var(--orange);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.card-header {
+  background: var(--orange);
+  padding: 10px 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.card-tag {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--white);
+  letter-spacing: 0.1em;
+}
+.card-sub {
+  font-size: 12px;
+  color: rgba(255,255,255,0.8);
+}
+
+.card-body {
+  padding: 20px 24px;
+  background: var(--white);
+}
+
+.line {
+  font-size: 14px;
+  line-height: 1.7;
+  color: var(--gray-800);
+  white-space: pre-wrap;
+}
+.line.empty { height: 8px; }
+</style>

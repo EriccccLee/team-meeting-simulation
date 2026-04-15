@@ -1,0 +1,88 @@
+/* ── 디자인 토큰 ─────────────────────────────────────────────────────── */
+:root {
+  --black:   #000000;
+  --white:   #FFFFFF;
+  --orange:  #FF4500;
+  --gray-50: #F5F5F5;
+  --gray-100:#EEEEEE;
+  --gray-200:#E5E5E5;
+  --gray-400:#AAAAAA;
+  --gray-600:#666666;
+  --gray-800:#333333;
+
+  --font-sans:  'Inter', sans-serif;
+  --font-head:  'Space Grotesk', sans-serif;
+  --font-mono:  'JetBrains Mono', monospace;
+
+  /* 팀원 색상 */
+  --color-leecy:      #FF4500;
+  --color-jasonjoe:   #2563EB;
+  --color-philgineer: #16A34A;
+  --color-jmyeon:     #9333EA;
+  --color-rockmin:    #DC2626;
+}
+
+/* ── 리셋 ────────────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: var(--font-sans);
+  font-size: 14px;
+  color: var(--black);
+  background: var(--white);
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1, h2, h3 { font-family: var(--font-head); }
+
+/* ── 공통 컴포넌트 ───────────────────────────────────────────────────── */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 10px 24px;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 500;
+  border: 1px solid var(--black);
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s;
+  background: var(--black);
+  color: var(--white);
+  border-radius: 4px;
+  letter-spacing: 0.02em;
+}
+.btn:hover { background: var(--orange); border-color: var(--orange); }
+.btn:disabled { background: var(--gray-200); color: var(--gray-400); border-color: var(--gray-200); cursor: not-allowed; }
+
+.tag {
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 2px 7px;
+  border: 1px solid var(--gray-200);
+  border-radius: 3px;
+  color: var(--gray-600);
+}
+
+/* ── fade-in 애니메이션 ──────────────────────────────────────────────── */
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.fade-in-up {
+  animation: fadeInUp 0.35s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* ── 타이핑 커서 (mirofish 스타일) ──────────────────────────────────── */
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0; }
+}
+.cursor::after {
+  content: '▋';
+  color: var(--orange);
+  animation: blink 1s step-start infinite;
+  margin-left: 2px;
+}
