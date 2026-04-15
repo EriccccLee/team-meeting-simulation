@@ -149,14 +149,21 @@ onMounted(async () => {
       const res = await fetch('/api/participants')
       if (res.ok) {
         participants.value = await res.json()
+      } else {
+        hasError.value = true
+        isRunning.value = false
       }
     }
-  } catch (_) {}
+  } catch (_) {
+    hasError.value = true
+    isRunning.value = false
+  }
 
   // topic 복원
   topic.value = sessionStorage.getItem('topic') || ''
 
   // SSE 연결
+  if (hasError.value) return
   es = new EventSource(`/api/stream/${sessionId}`)
 
   es.onmessage = async (e) => {
