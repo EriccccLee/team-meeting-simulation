@@ -2,7 +2,7 @@
 POST /api/run       — 시뮬레이션 시작, session_id 즉시 반환
 GET  /api/stream/{session_id} — SSE 이벤트 스트림
 
-파일 전처리(PDF/Excel/Word 변환)는 백그라운드 스레드에서 수행되며
+파일 전처리(PDF/Excel/Word/PowerPoint 변환)는 백그라운드 스레드에서 수행되며
 preprocessing 이벤트로 진행 상황을 실시간 전달합니다.
 """
 from __future__ import annotations
@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import io
 import json
+import queue as stdlib_queue
 import sys
 import tempfile
 import uuid
@@ -32,8 +33,8 @@ from simulation.cli import _load_agent_config, _load_file_contents
 
 router = APIRouter()
 
-# session_id → asyncio.Queue 매핑
-_sessions: dict[str, asyncio.Queue] = {}
+# session_id → SimpleQueue (thread-safe, no asyncio needed)
+_sessions: dict[str, stdlib_queue.SimpleQueue] = {}
 
 
 # ── 파일 포맷 변환 헬퍼 ───────────────────────────────────────────────────────
@@ -93,6 +94,30 @@ def _docx_to_md(filename: str, raw: bytes) -> str:
         return f"[Word 문서 변환 실패: {e}]"
 
 
+def _pptx_to_md(filename: str, raw: bytes) -> str:
+    """pptx → 마크다운 텍스트 (슬라이드별)"""
+    try:
+        from pptx import Presentation
+        prs = Presentation(io.BytesIO(raw))
+        parts = []
+        for i, slide in enumerate(prs.slides, start=1):
+            slide_texts = []
+            for shape in slide.shapes:
+                if not shape.has_text_frame:
+                    continue
+                for para in shape.text_frame.paragraphs:
+                    text = para.text.strip()
+                    if text:
+                        slide_texts.append(text)
+            if slide_texts:
+                parts.append(f"## 슬라이드 {i}\n\n" + "\n\n".join(slide_texts))
+        return "\n\n---\n\n".join(parts) if parts else "[빈 프레젠테이션]"
+    except ImportError:
+        return "[pptx 지원: pip install python-pptx]"
+    except Exception as e:
+        return f"[PowerPoint 변환 실패: {e}]"
+
+
 def _decode_text(raw: bytes) -> str:
     try:
         return raw.decode("utf-8")
@@ -108,13 +133,16 @@ def _run_simulation(
     participant_slugs: list[str],
     rounds: int,
     raw_files: list[tuple[str, bytes]],
-    loop: asyncio.AbstractEventLoop,
 ) -> None:
-    """파일 전처리 → orchestrator.run() 을 동기 스레드에서 실행."""
-    queue = _sessions[session_id]
+    """파일 전처리 → orchestrator.run() 을 동기 스레드에서 실행.
+
+    stdlib_queue.SimpleQueue 는 thread-safe 하므로 asyncio 없이 직접 put().
+    SSE generator 쪽에서 get_nowait() 폴링으로 소비함.
+    """
+    q = _sessions[session_id]
 
     def emit(event: dict) -> None:
-        loop.call_soon_threadsafe(queue.put_nowait, event)
+        q.put(event)  # SimpleQueue.put() is thread-safe
 
     try:
         # ── 1. 파일 전처리 (preprocessing SSE 이벤트 emit) ─────────────────
@@ -123,10 +151,11 @@ def _run_simulation(
 
         for idx, (filename, raw) in enumerate(raw_files, start=1):
             ext = Path(filename).suffix.lower()
-
-            def pre(msg: str, done: bool = False) -> None:
+            # default-arg trick prevents late-binding closure issues
+            def pre(msg: str, done: bool = False,
+                    _fn=filename, _idx=idx, _tot=total) -> None:
                 emit({"type": "preprocessing", "message": msg,
-                      "filename": filename, "index": idx, "total": total, "done": done})
+                      "filename": _fn, "index": _idx, "total": _tot, "done": done})
 
             if ext == ".pdf":
                 pre(f"PDF 변환 중: {filename}")
@@ -159,8 +188,13 @@ def _run_simulation(
                 file_contents[filename] = _docx_to_md(filename, raw)
                 pre(f"Word 문서 변환 완료: {filename}", done=True)
 
+            elif ext == ".pptx":
+                pre(f"PowerPoint 변환 중: {filename}")
+                file_contents[filename] = _pptx_to_md(filename, raw)
+                pre(f"PowerPoint 변환 완료: {filename}", done=True)
+
             else:
-                # 텍스트 계열 (.md, .txt 등)
+                # 텍스트 계열 (.md, .txt 등) — 전처리 이벤트 없음
                 file_contents[filename] = _decode_text(raw)
 
         # ── 2. 시뮬레이션 실행 ────────────────────────────────────────────────
@@ -177,8 +211,8 @@ def _run_simulation(
             output_dir=str(_ROOT / "outputs"),
             emit=emit,
         )
-        config = OrchestratorConfig(phase2_rounds=rounds)
-        orchestrator = MeetingOrchestrator(agents, moderator, session, config)
+        cfg = OrchestratorConfig(phase2_rounds=rounds)
+        orchestrator = MeetingOrchestrator(agents, moderator, session, cfg)
         result = orchestrator.run(topic, file_contents)
 
         emit({"type": "done", "output_file": str(result.output_file)})
@@ -186,7 +220,7 @@ def _run_simulation(
     except Exception as e:
         emit({"type": "error", "message": str(e)})
     finally:
-        loop.call_soon_threadsafe(queue.put_nowait, None)  # sentinel
+        q.put(None)  # sentinel — SSE generator 종료 신호
 
 
 # ── API 엔드포인트 ─────────────────────────────────────────────────────────────
@@ -200,9 +234,8 @@ async def run_simulation(
 ) -> dict:
     """session_id 를 즉시 반환합니다. 파일 전처리 + 시뮬레이션은 백그라운드 스레드에서 실행됩니다."""
     session_id = str(uuid.uuid4())
-    queue: asyncio.Queue = asyncio.Queue()
-    _sessions[session_id] = queue
-    loop = asyncio.get_running_loop()
+    q: stdlib_queue.SimpleQueue = stdlib_queue.SimpleQueue()
+    _sessions[session_id] = q
 
     # 파일 bytes 를 async 컨텍스트에서 읽고 나머지는 스레드에 위임
     raw_files: list[tuple[str, bytes]] = []
@@ -210,7 +243,8 @@ async def run_simulation(
         raw = await upload.read()
         raw_files.append((upload.filename or "attachment", raw))
 
-    future = loop.run_in_executor(
+    loop = asyncio.get_running_loop()
+    loop.run_in_executor(
         None,
         _run_simulation,
         session_id,
@@ -218,24 +252,31 @@ async def run_simulation(
         participants,
         rounds,
         raw_files,
-        loop,
     )
-    asyncio.ensure_future(future)
 
     return {"session_id": session_id}
 
 
 @router.get("/stream/{session_id}")
 async def stream_events(session_id: str) -> StreamingResponse:
-    """SSE 스트림 — 전처리 및 시뮬레이션 이벤트를 실시간 전송합니다."""
-    queue = _sessions.get(session_id)
-    if queue is None:
+    """SSE 스트림 — 전처리 및 시뮬레이션 이벤트를 실시간 전송합니다.
+
+    SimpleQueue 를 50 ms 폴링으로 소비합니다.
+    asyncio.Queue + call_soon_threadsafe 대신 이 방식이 Windows uvicorn 에서 안정적입니다.
+    """
+    q = _sessions.get(session_id)
+    if q is None:
         raise HTTPException(status_code=404, detail="session not found")
 
     async def generate():
         try:
             while True:
-                event = await queue.get()
+                try:
+                    event = q.get_nowait()
+                except stdlib_queue.Empty:
+                    await asyncio.sleep(0.05)  # 50 ms 폴링
+                    continue
+
                 if event is None:
                     yield 'data: {"type": "end"}\n\n'
                     break
