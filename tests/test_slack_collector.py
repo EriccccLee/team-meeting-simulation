@@ -66,6 +66,26 @@ def test_is_noise_normal_message():
     assert _is_noise("내일 오후로 확정입니다") is False
 
 
+def test_noise_custom_emoji_only():
+    """커스텀 이모지만 있는 메시지는 노이즈."""
+    assert _is_noise(":party-parrot: :tada:") is True
+
+
+def test_noise_slack_channel_ref():
+    """채널 링크만 있는 메시지는 노이즈."""
+    assert _is_noise("<#C01234567|general>") is True
+
+
+def test_noise_slack_url():
+    """URL만 있는 메시지는 노이즈."""
+    assert _is_noise("<https://example.com>") is True
+
+
+def test_noise_mixed_real_text():
+    """실제 텍스트 포함 시 노이즈가 아님."""
+    assert _is_noise(":thumbsup: 수고했어요!") is False
+
+
 from unittest.mock import MagicMock, patch
 from simulation.slack_collector import discover_users
 

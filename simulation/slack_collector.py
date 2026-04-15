@@ -46,6 +46,15 @@ _EMOJI_RE = re.compile(
 # Slack 멘션 패턴: <@UXXX> 또는 <@UXXX|name>
 _MENTION_RE = re.compile(r"<@[A-Z0-9]+(?:\|[^>]*)?>")
 
+# 커스텀 이모지: :custom-emoji:
+_SLACK_CUSTOM_EMOJI_RE = re.compile(r":[a-z0-9_\-+]+:")
+
+# Slack URL: <http://...> 또는 <https://...>
+_SLACK_LINK_RE = re.compile(r"<https?://[^>]+>")
+
+# Slack 채널 참조: <#CXXX|name> 또는 <#CXXX>
+_SLACK_CHAN_RE = re.compile(r"<#[A-Z0-9]+(?:\|[^>]*)?>")
+
 
 # ── slug 생성 ──────────────────────────────────────────────────────────────────
 
@@ -78,8 +87,11 @@ def _is_noise(text: str) -> bool:
     if not no_mentions:
         return True  # 멘션만으로 구성된 메시지
 
-    # 이모지 제거 후 남은 텍스트 확인
-    no_emoji = _EMOJI_RE.sub("", no_mentions).strip()
+    # 채널 링크, URL, 커스텀 이모지 제거 후 남은 텍스트 확인
+    no_chan = _SLACK_CHAN_RE.sub("", no_mentions).strip()
+    no_url = _SLACK_LINK_RE.sub("", no_chan).strip()
+    no_custom = _SLACK_CUSTOM_EMOJI_RE.sub("", no_url).strip()
+    no_emoji = _EMOJI_RE.sub("", no_custom).strip()
     if not no_emoji:
         return True  # 이모지만으로 구성된 메시지
 
