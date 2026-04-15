@@ -25,7 +25,7 @@ from fastapi.responses import StreamingResponse
 _ROOT = Path(__file__).parent.parent.parent
 
 from simulation.agents import MeetingAgent, ModeratorAgent
-from simulation.model_client import ClaudeCodeModelClient, run_claude_prompt
+from simulation.model_client import ClaudeCodeModelClient, decode_bytes, run_claude_prompt
 from simulation.orchestrator import MeetingOrchestrator, OrchestratorConfig
 from simulation.session import MeetingSession
 from simulation.loader import load_agent_config as _load_agent_config, load_file_contents as _load_file_contents
@@ -71,10 +71,7 @@ def _csv_to_md(filename: str, raw: bytes) -> str:
             df = pd.read_csv(io.BytesIO(raw), encoding="cp949")
         return df.to_markdown(index=False)
     except Exception:
-        try:
-            return raw.decode("utf-8")
-        except UnicodeDecodeError:
-            return raw.decode("cp949", errors="replace")
+        return decode_bytes(raw)
 
 
 def _docx_to_md(filename: str, raw: bytes) -> str:
@@ -125,13 +122,6 @@ def _pptx_to_md(filename: str, raw: bytes) -> str:
         return "[pptx 지원: pip install python-pptx]"
     except Exception as e:
         return f"[PowerPoint 변환 실패: {e}]"
-
-
-def _decode_text(raw: bytes) -> str:
-    try:
-        return raw.decode("utf-8")
-    except UnicodeDecodeError:
-        return raw.decode("cp949", errors="replace")
 
 
 def _llm_restructure(raw_text: str, filename: str, filetype: str,
@@ -275,7 +265,7 @@ def _run_simulation(
 
             else:
                 # 텍스트 계열 (.md, .txt 등) — 전처리 이벤트 없음
-                file_contents[filename] = _decode_text(raw)
+                file_contents[filename] = decode_bytes(raw)
 
         # ── 2. 시뮬레이션 실행 ────────────────────────────────────────────────
         model_client = ClaudeCodeModelClient()

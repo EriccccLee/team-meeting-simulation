@@ -17,18 +17,6 @@ from .model_client import ClaudeCodeModelClient
 logger = logging.getLogger(__name__)
 
 
-# ── Helpers ───────────────────────────────────────────────────────────────────
-
-def _strip_frontmatter(text: str) -> str:
-    """YAML frontmatter(--- … ---) 를 제거하고 본문만 반환."""
-    stripped = text.strip()
-    if stripped.startswith("---"):
-        end = stripped.find("---", 3)
-        if end != -1:
-            return stripped[end + 3:].lstrip("\n")
-    return stripped
-
-
 # ── MeetingAgent ──────────────────────────────────────────────────────────────
 
 @dataclass

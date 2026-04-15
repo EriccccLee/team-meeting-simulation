@@ -25,7 +25,7 @@ if hasattr(sys.stderr, "reconfigure"):
 
 from .agents import MeetingAgent, ModeratorAgent
 from .loader import load_agent_config as _load_agent_config, load_file_contents as _load_file_contents
-from .model_client import ClaudeCodeModelClient, run_claude_prompt
+from .model_client import ClaudeCodeModelClient
 from .orchestrator import MeetingOrchestrator, OrchestratorConfig
 from .session import MeetingSession
 
@@ -41,54 +41,6 @@ logging.basicConfig(
 
 def _all_slugs() -> list[str]:
     return sorted(p.name for p in TEAM_SKILLS_DIR.iterdir() if p.is_dir())
-
-
-def _pdf_to_md_via_claude(path: Path, timeout: int = 300) -> str:
-    """
-    `claude -p` 의 Read 도구를 사용해 PDF를 마크다운으로 변환합니다.
-
-    라이브러리(pypdf/fitz) 방식과 달리 표·다이어그램·이미지도 의미 있게 변환합니다.
-    변환된 마크다운은 PDF 와 같은 폴더에 <파일명>.converted.md 로 저장됩니다.
-
-    Args:
-        path:    PDF 파일 경로
-        timeout: subprocess 타임아웃 (초). 대용량 PDF 는 길게 설정 필요.
-    """
-    abs_path = path.resolve()
-
-    prompt = (
-        f"다음 PDF 파일을 읽고 전체 내용을 마크다운으로 변환해주세요: {abs_path}\n\n"
-        "변환 규칙:\n"
-        "- 제목/소제목 계층을 # ## ### 로 유지\n"
-        "- 표/데이터는 마크다운 표(| col | col |) 형식으로 재구성\n"
-        "- 로드맵·간트차트·타임라인은 마크다운 표나 번호 목록으로 표현\n"
-        "- 이미지/다이어그램은 [이미지: 내용 설명] 형식으로 의미를 텍스트화\n"
-        "- 내용을 요약하지 말고 전체를 변환\n"
-        "- 마크다운 코드블록 래퍼(```markdown) 없이 바로 마크다운 내용만 출력"
-    )
-
-    try:
-        md = run_claude_prompt(
-            [
-                "-p", prompt,
-                "--output-format", "text",
-                "--allowedTools", "Read",
-                "--add-dir", str(abs_path.parent),
-                "--no-session-persistence",
-            ],
-            timeout=timeout,
-        )
-    except TimeoutError:
-        raise RuntimeError(f"PDF 변환 타임아웃 ({timeout}초 초과): {path.name}")
-    except RuntimeError as e:
-        raise RuntimeError(f"PDF → MD 변환 실패: {e}") from e
-
-    # 변환 결과를 파일로 저장 (재사용 및 내용 확인용)
-    md_path = abs_path.with_suffix(".converted.md")
-    md_path.write_text(md, encoding="utf-8")
-    print(f"[변환 파일 저장] {md_path}")
-
-    return md
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
