@@ -13,6 +13,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Callable
 
 from .agents import MeetingAgent, ModeratorAgent
 from .session import MeetingSession
@@ -49,12 +50,14 @@ class MeetingOrchestrator:
         moderator: ModeratorAgent,
         session: MeetingSession,
         config: OrchestratorConfig | None = None,
+        cancel_check: Callable[[], bool] | None = None,
     ) -> None:
         self.agents = agents
         self.moderator = moderator
         self.session = session
         self.config = config or OrchestratorConfig()
         self.history: list[dict] = []
+        self._cancel_check = cancel_check or (lambda: False)
 
     def run(self, topic: str, file_contents: dict[str, str]) -> MeetingResult:
         # 각 에이전트의 system prompt 에 topic + 첨부 파일 주입
@@ -62,7 +65,11 @@ class MeetingOrchestrator:
             agent.build_system_prompt(topic, file_contents)
 
         self._phase1(topic)
+        if self._cancel_check():
+            return MeetingResult(output_file=Path("/dev/null"), consensus="", history=list(self.history))
         self._phase2(topic)
+        if self._cancel_check():
+            return MeetingResult(output_file=Path("/dev/null"), consensus="", history=list(self.history))
         consensus = self._phase3(topic)
 
         participants_info = [
@@ -116,6 +123,9 @@ class MeetingOrchestrator:
         first_agent_call = True
 
         for _ in range(self.config.phase2_rounds):
+            if self._cancel_check():
+                logger.info("시뮬레이션 취소 요청 — Phase 2 조기 종료")
+                return
             try:
                 slug = self.moderator.select_next_speaker(
                     self.history, exclude=last_slug

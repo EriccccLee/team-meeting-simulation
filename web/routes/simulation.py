@@ -45,6 +45,9 @@ def _validate_session_id(session_id: str) -> None:
 # session_id → SimpleQueue (thread-safe, no asyncio needed)
 _sessions: dict[str, stdlib_queue.SimpleQueue] = {}
 
+# session_id → bool — True이면 시뮬레이션을 조기 종료
+_cancel_flags: dict[str, bool] = {}
+
 
 # ── 파일 포맷 변환 헬퍼 ───────────────────────────────────────────────────────
 
@@ -268,6 +271,8 @@ def _run_simulation(
                 file_contents[filename] = decode_bytes(raw)
 
         # ── 2. 시뮬레이션 실행 ────────────────────────────────────────────────
+        # cancel flag 등록
+        _cancel_flags[session_id] = False
         model_client = ClaudeCodeModelClient()
         agents: list[MeetingAgent] = []
         for slug in participant_slugs:
@@ -282,15 +287,22 @@ def _run_simulation(
             emit=emit,
         )
         cfg = OrchestratorConfig(phase2_rounds=rounds)
-        orchestrator = MeetingOrchestrator(agents, moderator, session, cfg)
+        orchestrator = MeetingOrchestrator(
+            agents, moderator, session, cfg,
+            cancel_check=lambda: _cancel_flags.get(session_id, False),
+        )
         result = orchestrator.run(topic, file_contents)
 
-        emit({"type": "done", "output_file": str(result.output_file)})
-        _save_history(session_id, topic, participant_slugs, events_log)
+        if _cancel_flags.get(session_id):
+            emit({"type": "cancelled"})
+        else:
+            emit({"type": "done", "output_file": str(result.output_file)})
+            _save_history(session_id, topic, participant_slugs, events_log)
 
     except Exception as e:
         emit({"type": "error", "message": str(e)})
     finally:
+        _cancel_flags.pop(session_id, None)
         q.put(None)  # sentinel — SSE generator 종료 신호
 
 
@@ -362,3 +374,13 @@ async def stream_events(session_id: str) -> StreamingResponse:
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+@router.delete("/stream/{session_id}")
+async def cancel_simulation(session_id: str) -> dict:
+    """시뮬레이션 취소 요청. _run_simulation 루프가 다음 턴에서 종료된다."""
+    _validate_session_id(session_id)
+    if session_id not in _sessions:
+        raise HTTPException(status_code=404, detail="session not found")
+    _cancel_flags[session_id] = True
+    return {"status": "cancelling"}
