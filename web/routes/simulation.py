@@ -254,7 +254,7 @@ def _run_simulation(
                 tmp_path = None
                 try:
                     with tempfile.NamedTemporaryFile(
-                        suffix=".pdf", delete=False, dir=str(_ROOT)
+                        suffix=".pdf", delete=False
                     ) as tmp:
                         tmp.write(raw)
                         tmp_path = tmp.name
