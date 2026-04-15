@@ -108,7 +108,10 @@ class MeetingSession:
         )
 
         # 합의안은 인용 블록으로
-        consensus_lines = "\n".join(f"> {line}" for line in consensus.splitlines())
+        consensus_lines = "\n".join(
+            f"> {line}" if line.strip() else ">"
+            for line in consensus.splitlines()
+        )
         consensus_section = f"\n## 합의안\n\n{consensus_lines}\n"
 
         body = "".join(self._sections)
