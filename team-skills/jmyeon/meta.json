@@ -1,0 +1,13 @@
+{
+  "name": "연준명 [jmyeon]",
+  "slug": "jmyeon",
+  "uid": "U05DT4P4TBN",
+  "created_at": "2026-04-14T16:21:01.927851",
+  "updated_at": "2026-04-14T16:21:01.927851",
+  "version": "v1",
+  "knowledge_sources": [
+    "slack"
+  ],
+  "message_count": 98,
+  "corrections_count": 0
+}

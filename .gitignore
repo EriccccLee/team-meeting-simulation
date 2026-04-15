@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+
+# 생성된 회의록 (outputs/.gitkeep 은 유지)
+outputs/*.md
+
+# PDF 변환 캐시
+*.converted.md
+
+# PDF 원본 (내부 자료)
+*.pdf
+
+# Claude Code 로컬 설정
+.claude/
+
+# OS
+.DS_Store
+Thumbs.db

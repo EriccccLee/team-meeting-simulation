@@ -1,0 +1,10 @@
+# team-meeting-simulation
+#
+# 핵심 의존성: 없음 (표준 라이브러리만 사용)
+# LLM 호출은 claude -p subprocess 를 통해 처리합니다.
+
+# PDF 첨부 파일 지원 (이미 설치됨)
+pypdf>=4.0.0
+
+# 선택적 — 추후 AutoGen GroupChat 기능 추가 시:
+# autogen-agentchat>=0.4.0
