@@ -92,6 +92,7 @@ onMounted(async () => {
       fetch('/api/participants'),
     ])
     if (!histRes.ok) throw new Error('기록을 찾을 수 없습니다.')
+    if (!partRes.ok) throw new Error('참여자 정보를 불러올 수 없습니다.')
     data.value = await histRes.json()
     participants.value = await partRes.json()
   } catch (e) {
