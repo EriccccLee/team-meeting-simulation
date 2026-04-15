@@ -23,11 +23,15 @@
         ↓
 [Backend: FastAPI :8000]
         │
-        ├── BackgroundTask로 별도 스레드에서 orchestrator.run() 실행
-        │       각 발언 완료 시 → asyncio.Queue에 이벤트 push
+        ├── asyncio.to_thread()로 별도 스레드에서 orchestrator.run() 실행
+        │       (orchestrator는 동기 블로킹 — time.sleep, subprocess.run 포함)
+        │       각 발언 완료 시 → loop.call_soon_threadsafe()로 asyncio.Queue에 push
         │
-        └── SSE 엔드포인트: Queue에서 이벤트 pop → text/event-stream 전송
+        └── SSE 엔드포인트: await queue.get()으로 이벤트 pop → text/event-stream 전송
 ```
+
+> **스레드 안전성 주의:** orchestrator는 별도 OS 스레드에서 실행되므로 asyncio.Queue에
+> 직접 접근하면 안 됨. 반드시 `loop.call_soon_threadsafe(queue.put_nowait, event)` 사용.
 
 기존 `simulation/` 패키지는 최소 수정. CLI(`python -m simulation.cli`)는 그대로 동작.
 
