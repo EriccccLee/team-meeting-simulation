@@ -59,24 +59,46 @@ def test_discover_returns_user_list():
 
 
 def test_extract_returns_session_id():
+    """올바른 형식으로 요청 시 session_id 반환."""
     with patch("web.routes.slack_extraction._run_extraction"):
         from fastapi.testclient import TestClient
         from web.app import app
         client = TestClient(app, raise_server_exceptions=False)
         res = client.post(
             "/api/slack/extract",
-            json=[{"user_id": "UA001", "slug": "honggildong", "display_name": "홍길동"}],
+            json={
+                "members": [{"user_id": "UA001", "slug": "honggildong", "display_name": "홍길동"}],
+                "max_collect": 2000,
+                "max_messages": 300,
+            },
         )
-
     assert res.status_code == 200
-    data = res.json()
-    assert "session_id" in data
-    assert len(data["session_id"]) == 36  # UUID4
+    assert "session_id" in res.json()
+    assert len(res.json()["session_id"]) == 36
 
 
-def test_extract_empty_list_returns_400():
+def test_extract_empty_members_returns_400():
+    """members가 빈 리스트이면 400을 반환해야 한다."""
     from fastapi.testclient import TestClient
     from web.app import app
     client = TestClient(app, raise_server_exceptions=False)
-    res = client.post("/api/slack/extract", json=[])
+    res = client.post("/api/slack/extract", json={"members": [], "max_collect": 2000, "max_messages": 300})
     assert res.status_code == 400
+
+
+def test_stream_invalid_session_id_returns_400():
+    """path traversal 시도는 400을 반환해야 한다."""
+    from fastapi.testclient import TestClient
+    from web.app import app
+    client = TestClient(app, raise_server_exceptions=False)
+    res = client.get("/api/slack/stream/invalid-id-not-a-uuid")
+    assert res.status_code == 400
+
+
+def test_extract_invalid_body_returns_422():
+    """리스트를 직접 전송하면 422."""
+    from fastapi.testclient import TestClient
+    from web.app import app
+    client = TestClient(app, raise_server_exceptions=False)
+    res = client.post("/api/slack/extract", json=[{"user_id": "UA001"}])
+    assert res.status_code == 422
