@@ -6,7 +6,7 @@ DELETE /api/history/{session_id} — 특정 회의 삭제
 from __future__ import annotations
 
 import json
-import sys
+import re
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
@@ -15,6 +15,15 @@ router = APIRouter()
 
 _ROOT = Path(__file__).parent.parent.parent
 HISTORY_DIR = _ROOT / "outputs" / "history"
+
+_UUID_RE = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+)
+
+
+def _validate_session_id(session_id: str) -> None:
+    if not _UUID_RE.match(session_id):
+        raise HTTPException(status_code=400, detail="invalid session_id format")
 
 
 def _read_meta(path: Path) -> dict | None:
@@ -45,9 +54,10 @@ def list_history() -> list[dict]:
     return result
 
 
-@router.get("/history/{session_id}")
+@router.get("/history/{session_id:path}")
 def get_history(session_id: str) -> dict:
     """특정 회의의 전체 데이터(피드 포함) 반환."""
+    _validate_session_id(session_id)
     path = HISTORY_DIR / f"{session_id}.json"
     if not path.exists():
         raise HTTPException(status_code=404, detail="history not found")
@@ -57,9 +67,10 @@ def get_history(session_id: str) -> dict:
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.delete("/history/{session_id}")
+@router.delete("/history/{session_id:path}")
 def delete_history(session_id: str) -> dict:
     """특정 회의 기록 삭제."""
+    _validate_session_id(session_id)
     path = HISTORY_DIR / f"{session_id}.json"
     if not path.exists():
         raise HTTPException(status_code=404, detail="history not found")
