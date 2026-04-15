@@ -13,8 +13,6 @@ import io
 import json
 import queue as stdlib_queue
 import re
-import shutil
-import subprocess
 import sys
 import tempfile
 import uuid
@@ -30,7 +28,7 @@ if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
 from simulation.agents import MeetingAgent, ModeratorAgent
-from simulation.model_client import ClaudeCodeModelClient, decode_bytes
+from simulation.model_client import ClaudeCodeModelClient, run_claude_prompt
 from simulation.orchestrator import MeetingOrchestrator, OrchestratorConfig
 from simulation.session import MeetingSession
 from simulation.cli import _load_agent_config, _load_file_contents
@@ -159,24 +157,14 @@ def _llm_restructure(raw_text: str, filename: str, filetype: str,
         "- 마크다운 코드블록 래퍼(```markdown) 없이 바로 마크다운 내용만 출력"
     )
 
-    exe = shutil.which("claude") or "claude"
-    if sys.platform == "win32":
-        cmd = ["cmd.exe", "/c", exe]
-    else:
-        cmd = [exe]
-    cmd += ["-p", prompt, "--output-format", "text", "--no-session-persistence"]
-
     try:
-        result = subprocess.run(cmd, capture_output=True, timeout=timeout)
-    except subprocess.TimeoutExpired:
+        md = run_claude_prompt(
+            ["-p", prompt, "--output-format", "text", "--no-session-persistence"],
+            timeout=timeout,
+        )
+    except TimeoutError:
         raise RuntimeError(f"LLM 변환 타임아웃 ({timeout}초 초과): {filename}")
 
-    if result.returncode != 0:
-        raise RuntimeError(
-            f"LLM 변환 실패 (exit {result.returncode}): {decode_bytes(result.stderr).strip()}"
-        )
-
-    md = decode_bytes(result.stdout).strip()
     if not md:
         raise RuntimeError("LLM 변환 결과가 비어있습니다.")
     return md

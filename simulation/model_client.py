@@ -28,12 +28,64 @@ def decode_bytes(data: bytes | None) -> str:
     except UnicodeDecodeError:
         return data.decode("cp949", errors="replace")
 
+
 # Windows 에서 npm 전역 설치된 claude 는 claude.CMD 파일입니다.
 # .CMD 파일은 cmd.exe 를 통해야 실행되므로, Windows 에서는 항상
 # ["cmd.exe", "/c", <exe>] 접두사를 붙이고 shell=False 로 실행합니다.
 # 대화 내용은 긴 멀티라인 텍스트이므로 positional arg 대신 stdin 으로 전달합니다.
 _CLAUDE_EXE: str = shutil.which("claude") or "claude"
 _IS_WINDOWS: bool = sys.platform == "win32"
+
+
+def run_claude_prompt(
+    args: list[str],
+    *,
+    stdin: bytes | None = None,
+    timeout: int = 180,
+) -> str:
+    """
+    `claude -p` 를 실행하고 stdout을 반환합니다.
+
+    Args:
+        args:    claude 실행 후 이어지는 인자 목록
+        stdin:   표준 입력 바이트 (선택)
+        timeout: 타임아웃 (초)
+
+    Returns:
+        stdout 문자열 (strip 처리됨)
+
+    Raises:
+        TimeoutError: 타임아웃 초과
+        RuntimeError: non-zero exit code
+    """
+    exe = shutil.which("claude") or "claude"
+    if _IS_WINDOWS:
+        cmd = ["cmd.exe", "/c", exe]
+    else:
+        cmd = [exe]
+    cmd += args
+
+    try:
+        result = subprocess.run(
+            cmd,
+            input=stdin,
+            capture_output=True,
+            timeout=timeout,
+            shell=False,
+        )
+    except subprocess.TimeoutExpired:
+        raise TimeoutError(f"claude timed out after {timeout}s")
+
+    stdout = decode_bytes(result.stdout)
+    stderr = decode_bytes(result.stderr)
+
+    if result.returncode != 0:
+        logger.error("claude stderr: %s", stderr.strip())
+        raise RuntimeError(
+            f"claude exited with code {result.returncode}: {stderr.strip()}"
+        )
+
+    return stdout.strip()
 
 
 class ClaudeCodeModelClient:

@@ -14,8 +14,6 @@ from __future__ import annotations
 import argparse
 import json
 import logging
-import shutil
-import subprocess
 import sys
 from pathlib import Path
 
@@ -27,7 +25,7 @@ if hasattr(sys.stderr, "reconfigure"):
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
 from .agents import AgentConfig, MeetingAgent, ModeratorAgent, _strip_frontmatter
-from .model_client import ClaudeCodeModelClient, decode_bytes
+from .model_client import ClaudeCodeModelClient, run_claude_prompt
 from .orchestrator import MeetingOrchestrator, OrchestratorConfig
 from .session import MeetingSession
 
@@ -96,40 +94,21 @@ def _pdf_to_md_via_claude(path: Path, timeout: int = 300) -> str:
         "- 마크다운 코드블록 래퍼(```markdown) 없이 바로 마크다운 내용만 출력"
     )
 
-    exe = shutil.which("claude") or "claude"
-    if sys.platform == "win32":
-        cmd = ["cmd.exe", "/c", exe]
-    else:
-        cmd = [exe]
-
-    cmd += [
-        "-p", prompt,
-        "--output-format", "text",
-        "--allowedTools", "Read",           # Read 도구만 허용 (파일시스템 접근 최소화)
-        "--add-dir", str(abs_path.parent),  # PDF 폴더 접근 허용
-        "--no-session-persistence",
-    ]
-
     try:
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
+        md = run_claude_prompt(
+            [
+                "-p", prompt,
+                "--output-format", "text",
+                "--allowedTools", "Read",
+                "--add-dir", str(abs_path.parent),
+                "--no-session-persistence",
+            ],
             timeout=timeout,
         )
-    except subprocess.TimeoutExpired:
+    except TimeoutError:
         raise RuntimeError(f"PDF 변환 타임아웃 ({timeout}초 초과): {path.name}")
-
-    stdout = decode_bytes(result.stdout)
-    stderr = decode_bytes(result.stderr)
-
-    if result.returncode != 0:
-        raise RuntimeError(
-            f"PDF → MD 변환 실패 (exit {result.returncode}): {stderr.strip()}"
-        )
-
-    md = stdout.strip()
-    if not md:
-        raise RuntimeError("PDF → MD 변환 결과가 비어있습니다.")
+    except RuntimeError as e:
+        raise RuntimeError(f"PDF → MD 변환 실패: {e}") from e
 
     # 변환 결과를 파일로 저장 (재사용 및 내용 확인용)
     md_path = abs_path.with_suffix(".converted.md")
