@@ -420,13 +420,26 @@ def _format_messages_for_llm(
 
     thread_starter(40%) → long >50자(40%) → short(20%) 비율 적용.
     """
+    if max_messages <= 0 or not messages:
+        return ""
+
     thread_msgs = [m for m in messages if m.get("is_thread_starter")]
     long_msgs   = [m for m in messages if not m.get("is_thread_starter") and len(m["content"]) > 50]
     short_msgs  = [m for m in messages if not m.get("is_thread_starter") and len(m["content"]) <= 50]
 
-    t_n = min(len(thread_msgs), max_messages * 4 // 10)
-    l_n = min(len(long_msgs),   max_messages * 4 // 10)
-    s_n = min(len(short_msgs),  max_messages * 2 // 10)
+    t_budget = max_messages * 4 // 10
+    l_budget = max_messages * 4 // 10
+    s_budget = max_messages - t_budget - l_budget  # remainder goes to short
+
+    t_n = min(len(thread_msgs), t_budget)
+    l_n = min(len(long_msgs),   l_budget)
+    s_n = min(len(short_msgs),  s_budget)
+
+    # Redistribute unused thread slots to long, then unused long slots to short
+    unused_t = t_budget - t_n
+    unused_l = l_budget - l_n
+    l_n = min(len(long_msgs), l_budget + unused_t)
+    s_n = min(len(short_msgs), s_budget + unused_l + (l_budget + unused_t - l_n))
 
     def fmt(m: dict) -> str:
         return f"[{m.get('ts', '')}][{m.get('channel', '')}] {m['content']}"

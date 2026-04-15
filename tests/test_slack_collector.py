@@ -200,7 +200,8 @@ def test_collect_user_messages_filters_by_user():
         result = collect_user_messages("UA001", "xoxb-fake", channels=["C001"])
 
     assert len(result) == 2
-    contents = [m["content"] if isinstance(m, dict) else m for m in result]
+    assert all(isinstance(m, dict) for m in result)
+    contents = [m["content"] for m in result]
     assert "오늘 배포 일정 확인했어요" in contents
     assert "내일 오후로 확정입니다" in contents
 
@@ -221,7 +222,8 @@ def test_collect_user_messages_filters_noise():
     with patch("simulation.slack_collector.RateLimitedSlackClient", return_value=mock_client):
         result = collect_user_messages("UA001", "xoxb-fake", channels=["C001"])
 
-    contents = [m["content"] if isinstance(m, dict) else m for m in result]
+    assert all(isinstance(m, dict) for m in result)
+    contents = [m["content"] for m in result]
     assert contents == ["배포 완료 확인했습니다"]
 
 
@@ -261,7 +263,10 @@ def test_write_profile_creates_all_files():
             part_a="### 주요 업무 역할\n데이터 분석 담당",
             part_b="### Layer 0\n핵심 원칙",
             team_skills_dir=team_dir,
-            raw_messages=["메시지1", "메시지2"],
+            raw_messages=[
+                {"content": "메시지1", "ts": "1234.0", "channel": "C001", "is_thread_starter": False},
+                {"content": "메시지2", "ts": "1235.0", "channel": "C001", "is_thread_starter": True},
+            ],
         )
 
         assert result == team_dir / "testuser"
