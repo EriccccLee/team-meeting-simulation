@@ -4,6 +4,7 @@
     <header class="header">
       <span class="logo-square" />
       <span class="logo-text">TEAM MEETING SIMULATION</span>
+      <button class="btn-extract" @click="router.push('/extract')">팀원 재추출</button>
     </header>
 
     <main class="main">
@@ -131,6 +132,10 @@ onMounted(async () => {
     const res = await fetch('/api/participants')
     allParticipants.value = await res.json()
     selectedSlugs.value = allParticipants.value.map(p => p.slug)
+    if (allParticipants.value.length === 0) {
+      router.push('/extract')
+      return
+    }
   } catch (e) {
     error.value = '팀원 목록을 불러오지 못했습니다.'
   } finally {
@@ -221,6 +226,21 @@ async function startSimulation() {
   letter-spacing: 0.08em;
   color: var(--black);
 }
+.btn-extract {
+  margin-left: auto;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  color: var(--gray-600);
+  text-transform: uppercase;
+  padding: 4px 0;
+  transition: color 0.2s;
+}
+.btn-extract:hover { color: var(--orange); }
 
 /* 메인 2-컬럼 */
 .main {
