@@ -18,6 +18,7 @@ import logging
 import os
 import queue as stdlib_queue
 import re
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -54,6 +55,52 @@ _SLACK_LINK_RE = re.compile(r"<https?://[^>]+>")
 
 # Slack 채널 참조: <#CXXX|name> 또는 <#CXXX>
 _SLACK_CHAN_RE = re.compile(r"<#[A-Z0-9]+(?:\|[^>]*)?>")
+
+
+# ── Rate-limited Slack client ──────────────────────────────────────────────────
+
+_MAX_RETRIES = 5
+_RETRY_MAX_WAIT = 60.0
+
+
+class RateLimitedSlackClient:
+    """Slack API 호출을 래핑해 ratelimited 오류 시 Retry-After 기반 재시도."""
+
+    def __init__(self, token: str) -> None:
+        self._client = WebClient(token=token)
+
+    def call(self, method: str, **kwargs) -> dict:
+        """단일 API 메서드를 호출하고 응답 data를 반환."""
+        for attempt in range(1, _MAX_RETRIES + 1):
+            try:
+                return getattr(self._client, method)(**kwargs).data
+            except SlackApiError as e:
+                if e.response.get("error") == "ratelimited":
+                    wait = min(
+                        float(e.response.headers.get("Retry-After", attempt)),
+                        _RETRY_MAX_WAIT,
+                    )
+                    logger.warning(
+                        "Rate limited — %.0fs 대기 (시도 %d/%d)",
+                        wait, attempt, _MAX_RETRIES,
+                    )
+                    time.sleep(wait)
+                    continue
+                raise
+        raise RuntimeError(f"Slack API {method} — {_MAX_RETRIES}회 재시도 후 실패")
+
+    def paginate(self, method: str, result_key: str, **kwargs) -> list:
+        """cursor 기반 페이지네이션으로 result_key 항목 전체를 수집."""
+        items: list = []
+        cursor = None
+        while True:
+            extra = {"cursor": cursor} if cursor else {}
+            data = self.call(method, **kwargs, **extra)
+            items.extend(data.get(result_key, []))
+            cursor = (data.get("response_metadata") or {}).get("next_cursor")
+            if not cursor:
+                break
+        return items
 
 
 # ── slug 생성 ──────────────────────────────────────────────────────────────────

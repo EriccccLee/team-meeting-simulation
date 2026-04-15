@@ -308,3 +308,56 @@ def test_write_profile_slug_conflict_resolved():
         assert r1 == team_dir / "alice"
         assert r2 == team_dir / "alice_2"
         assert r3 == team_dir / "alice_3"
+
+
+# ── RateLimitedSlackClient ────────────────────────────────────────────────────
+
+from simulation.slack_collector import RateLimitedSlackClient
+
+
+def test_rate_limited_client_retries_on_ratelimit():
+    """429 ratelimited 응답 시 재시도 후 성공."""
+    from slack_sdk.errors import SlackApiError
+
+    # 첫 번째 호출은 ratelimited, 두 번째는 성공
+    fake_response_ok = {"messages": ["hello"], "response_metadata": {}}
+    rate_limit_exc = SlackApiError(
+        message="ratelimited",
+        response=MagicMock(
+            status_code=429,
+            data={"error": "ratelimited"},
+            headers={"Retry-After": "1"},
+            get=lambda k, d=None: {"error": "ratelimited"}.get(k, d),
+        ),
+    )
+    mock_method = MagicMock(
+        side_effect=[rate_limit_exc, MagicMock(data=fake_response_ok)]
+    )
+    mock_webclient = MagicMock()
+    mock_webclient.conversations_history = mock_method
+
+    with patch("simulation.slack_collector.WebClient", return_value=mock_webclient), \
+         patch("time.sleep") as mock_sleep:
+        client = RateLimitedSlackClient(token="xoxb-test")
+        result = client.call("conversations_history", channel="C123", limit=10)
+
+    assert result == fake_response_ok
+    assert mock_method.call_count == 2
+    mock_sleep.assert_called()  # 재시도 전 sleep 호출됨
+
+
+def test_rate_limited_client_paginate_collects_all():
+    """paginate()가 cursor를 따라 두 페이지를 수집한다."""
+    mock_webclient = MagicMock()
+    page1 = {"messages": ["a", "b"], "response_metadata": {"next_cursor": "cur1"}}
+    page2 = {"messages": ["c"], "response_metadata": {}}
+    mock_webclient.conversations_history.side_effect = [
+        MagicMock(data=page1),
+        MagicMock(data=page2),
+    ]
+
+    with patch("simulation.slack_collector.WebClient", return_value=mock_webclient):
+        client = RateLimitedSlackClient(token="xoxb-test")
+        result = client.paginate("conversations_history", "messages", channel="C123")
+
+    assert result == ["a", "b", "c"]
