@@ -87,6 +87,7 @@ class ExtractMember(BaseModel):
     @field_validator("role")
     @classmethod
     def role_must_be_valid(cls, v: str) -> str:
+        # Tolerant: unknown roles fall back to "general" rather than rejecting the request.
         valid = {"backend", "frontend", "ml", "pm", "data", "general"}
         return v if v in valid else "general"
 

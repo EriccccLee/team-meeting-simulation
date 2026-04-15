@@ -521,3 +521,40 @@ def test_extract_work_patterns_general_no_role_prompt():
 
     call_args = str(mock_client.call.call_args)
     assert "추가 분석" not in call_args
+
+
+def test_extract_persona_patterns_injects_impression():
+    """impression이 있으면 프롬프트에 포함된다."""
+    messages = [{"content": "열심히 일했어요", "ts": "1", "channel": "C001", "is_thread_starter": False}]
+    mock_client = MagicMock()
+    mock_client.call.return_value = "분석"
+
+    extract_persona_patterns(messages, mock_client, max_messages=10, impression="꼼꼼하고 체계적")
+
+    call_args = str(mock_client.call.call_args)
+    assert "팀원 인상 메모" in call_args
+    assert "꼼꼼하고 체계적" in call_args
+
+
+def test_extract_persona_patterns_no_impression_block_when_empty():
+    """impression이 빈 문자열이면 인상 메모 블록이 포함되지 않는다."""
+    messages = [{"content": "열심히 일했어요", "ts": "1", "channel": "C001", "is_thread_starter": False}]
+    mock_client = MagicMock()
+    mock_client.call.return_value = "분석"
+
+    extract_persona_patterns(messages, mock_client, max_messages=10, impression="")
+
+    call_args = str(mock_client.call.call_args)
+    assert "팀원 인상 메모" not in call_args
+
+
+def test_extract_persona_patterns_whitespace_only_impression_suppressed():
+    """impression이 공백만 있으면 인상 메모 블록이 포함되지 않는다."""
+    messages = [{"content": "열심히 일했어요", "ts": "1", "channel": "C001", "is_thread_starter": False}]
+    mock_client = MagicMock()
+    mock_client.call.return_value = "분석"
+
+    extract_persona_patterns(messages, mock_client, max_messages=10, impression="   ")
+
+    call_args = str(mock_client.call.call_args)
+    assert "팀원 인상 메모" not in call_args

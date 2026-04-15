@@ -102,3 +102,24 @@ def test_extract_invalid_body_returns_422():
     client = TestClient(app, raise_server_exceptions=False)
     res = client.post("/api/slack/extract", json=[{"user_id": "UA001"}])
     assert res.status_code == 422
+
+
+def test_extract_member_role_coerces_invalid_to_general():
+    from web.routes.slack_extraction import ExtractMember
+    m = ExtractMember(user_id="UA001", slug="test", display_name="Test", role="engineer")
+    assert m.role == "general"
+
+
+def test_extract_member_accepts_all_valid_roles():
+    from web.routes.slack_extraction import ExtractMember
+    for valid_role in ("backend", "frontend", "ml", "pm", "data", "general"):
+        m = ExtractMember(user_id="UA001", slug=f"test{valid_role}", display_name="Test", role=valid_role)
+        assert m.role == valid_role
+
+
+def test_extract_member_model_dump_includes_role_and_impression():
+    from web.routes.slack_extraction import ExtractMember
+    m = ExtractMember(user_id="UA001", slug="test", display_name="Test", role="ml", impression="신중함")
+    d = m.model_dump()
+    assert d["role"] == "ml"
+    assert d["impression"] == "신중함"
