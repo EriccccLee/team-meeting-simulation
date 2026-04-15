@@ -164,7 +164,11 @@ function participantNames(slugs) {
 
 async function deleteHistory(sessionId) {
   if (!confirm('이 회의 기록을 삭제하시겠습니까?')) return
-  await fetch(`/api/history/${sessionId}`, { method: 'DELETE' })
+  const res = await fetch(`/api/history/${sessionId}`, { method: 'DELETE' })
+  if (!res.ok) {
+    error.value = '삭제에 실패했습니다.'
+    return
+  }
   historyList.value = historyList.value.filter(h => h.session_id !== sessionId)
 }
 
