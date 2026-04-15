@@ -100,10 +100,13 @@ class MeetingOrchestrator:
 
         agent_map = {a.config.slug: a for a in self.agents}
         instruction = "다른 팀원의 의견에 반응하거나 새 논점을 제시하세요."
+        last_slug: str | None = None
 
         for _ in range(self.config.phase2_rounds):
             try:
-                slug = self.moderator.select_next_speaker(self.history)
+                slug = self.moderator.select_next_speaker(
+                    self.history, exclude=last_slug
+                )
             except Exception as e:
                 logger.error("select_next_speaker 실패: %s — 건너뜁니다", e)
                 continue
@@ -117,6 +120,7 @@ class MeetingOrchestrator:
             if response:
                 self.session.stream_message(agent.config.name, response, agent.config.slug)
                 self._add_agent(agent, response, phase=2)
+                last_slug = slug
 
     def _phase3(self, topic: str) -> str:
         self.session.stream_phase("Phase 3: 최종 입장 및 합의 도출")

@@ -151,12 +151,19 @@ class ModeratorAgent:
             history + [{"slug": "__moderator__", "speaker": "[사회자]", "content": instruction}],
         )
 
-    def select_next_speaker(self, history: list[dict]) -> str:
+    def select_next_speaker(
+        self, history: list[dict], exclude: str | None = None
+    ) -> str:
         """
-        Phase 2 에서 다음 발언자 slug 를 선택합니다.
+        Phase 2에서 다음 발언자 slug를 선택합니다.
+        exclude: 직전 발언자 slug — 이 사람은 선택하지 않음.
         파싱 실패 시 참여자 중 랜덤 선택으로 fallback.
         """
-        slugs_str = ", ".join(self.participant_slugs)
+        available = [s for s in self.participant_slugs if s != exclude]
+        if not available:
+            available = list(self.participant_slugs)  # 전원이 exclude되면 무시
+
+        slugs_str = ", ".join(available)
         history_summary = self._summarize_history(history)
         instruction = (
             f"다음 발언자를 선택하세요.\n"
@@ -171,11 +178,11 @@ class ModeratorAgent:
         ).strip()
 
         slug = self._parse_slug(response)
-        if slug not in self.participant_slugs:
+        if slug not in available:
             logger.warning(
                 "ModeratorAgent returned unknown slug %r — falling back to random", slug
             )
-            slug = random.choice(self.participant_slugs)
+            slug = random.choice(available)
         return slug
 
     def draft_consensus(self, topic: str, history: list[dict]) -> str:
