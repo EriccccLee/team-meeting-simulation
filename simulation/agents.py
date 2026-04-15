@@ -71,20 +71,27 @@ class MeetingAgent:
             "간결하게 발언하세요 (3~5문장 권장)."
         )
 
-    def respond(self, topic: str, history: list[dict], instruction: str) -> str:
+    def respond(
+        self,
+        topic: str,
+        history: list[dict],
+        instruction: str,
+        file_contents: dict[str, str] | None = None,
+    ) -> str:
         """
         현재 대화 히스토리와 사회자 지시를 받아 이 팀원의 발언을 생성합니다.
 
         Args:
-            topic:       회의 안건
-            history:     현재까지의 전체 대화 히스토리
-            instruction: 사회자가 이 팀원에게 내리는 지시
+            topic:         회의 안건
+            history:       현재까지의 전체 대화 히스토리
+            instruction:   사회자가 이 팀원에게 내리는 지시
+            file_contents: 첨부 파일 내용 {파일명: 내용} (선택)
 
         Returns:
             생성된 발언 텍스트
         """
         if self._system_prompt is None:
-            self.build_system_prompt(topic, {})
+            self.build_system_prompt(topic, file_contents or {})
 
         messages = list(history)
         messages.append({
