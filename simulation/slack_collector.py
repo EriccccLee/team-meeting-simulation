@@ -244,30 +244,80 @@ def discover_users(
 _DEFAULT_MAX_COLLECT = 2000   # Slack API 수집 상한
 _DEFAULT_MAX_MESSAGES = 300   # LLM 전달 상한
 
+# ── Slack API: 채널 자동 탐색 ─────────────────────────────────────────────────
+
+def discover_channels_for_user(
+    user_id: str,
+    token: str,
+    channel_limit: int = 50,
+) -> list[str]:
+    """Bot이 가입한 채널 중 user_id가 멤버인 채널 ID 목록 반환.
+
+    채널 자동 탐색이 필요할 때 collect_user_messages에서 내부 호출된다.
+    """
+    client = RateLimitedSlackClient(token)
+    channels: list[dict] = []
+    cursor = None
+    while len(channels) < channel_limit:
+        extra = {"cursor": cursor} if cursor else {}
+        data = client.call(
+            "conversations_list",
+            types="public_channel,private_channel,mpim",
+            exclude_archived=True,
+            limit=200,
+            **extra,
+        )
+        for ch in data.get("channels", []):
+            if ch.get("is_member"):
+                channels.append(ch)
+        cursor = (data.get("response_metadata") or {}).get("next_cursor")
+        if not cursor:
+            break
+
+    channels = channels[:channel_limit]
+    result = []
+    for ch in channels:
+        try:
+            members: list[str] = []
+            cursor = None
+            while True:
+                extra = {"cursor": cursor} if cursor else {}
+                data = client.call("conversations_members", channel=ch["id"], limit=200, **extra)
+                members.extend(data.get("members", []))
+                cursor = (data.get("response_metadata") or {}).get("next_cursor")
+                if not cursor:
+                    break
+            if user_id in members:
+                result.append(ch["id"])
+        except SlackApiError:
+            continue
+    return result
+
+
 # ── Slack API: 메시지 수집 ────────────────────────────────────────────────────
 
 def collect_user_messages(
     user_id: str,
-    channels: list[str],
     token: str,
+    channels: list[str] | None = None,
     max_collect: int = _DEFAULT_MAX_COLLECT,
 ) -> list[str]:
     """지정 user_id가 보낸 메시지 중 노이즈를 제거한 텍스트 목록 반환.
 
-    여러 채널을 순회하며 수집하고, _is_noise() 필터를 적용한다.
+    channels=None이면 discover_channels_for_user()로 자동 탐색한다.
     """
-    client = WebClient(token=token)
+    if channels is None:
+        channels = discover_channels_for_user(user_id, token)
+
+    client = RateLimitedSlackClient(token)
     messages: list[str] = []
 
     for channel_id in channels:
         try:
             cursor = None
             while True:
-                resp = client.conversations_history(
-                    channel=channel_id,
-                    cursor=cursor,
-                    limit=200,
-                )
+                extra = {"cursor": cursor} if cursor else {}
+                resp = client.call("conversations_history", channel=channel_id, limit=200, **extra)
                 for msg in resp.get("messages", []):
                     if (
                         msg.get("type") == "message"
@@ -278,10 +328,7 @@ def collect_user_messages(
                         text = msg.get("text", "").strip()
                         if text and not _is_noise(text):
                             messages.append(text)
-
-                next_cursor = (
-                    resp.get("response_metadata", {}).get("next_cursor") or ""
-                )
+                next_cursor = (resp.get("response_metadata") or {}).get("next_cursor") or ""
                 if next_cursor and len(messages) < max_collect:
                     cursor = next_cursor
                 else:
@@ -289,9 +336,7 @@ def collect_user_messages(
         except SlackApiError as e:
             logger.warning(
                 "채널 %s 메시지 수집 실패 (user=%s, 스킵): %s",
-                channel_id,
-                user_id,
-                e,
+                channel_id, user_id, e,
             )
         if len(messages) >= max_collect:
             break
@@ -470,7 +515,7 @@ def write_profile(
 def _run_extraction(
     members: list[dict],    # [{"user_id", "slug", "display_name"}, ...]
     token: str,
-    channels: list[str],
+    channels: list[str] | None,
     q: stdlib_queue.SimpleQueue,
     team_skills_dir: Path,
     max_collect: int = _DEFAULT_MAX_COLLECT,
@@ -499,7 +544,7 @@ def _run_extraction(
             # 1. 메시지 수집
             emit({"type": "collecting", "slug": slug, "current": i, "total": total})
             try:
-                messages = collect_user_messages(user_id, channels, token, max_collect=max_collect)
+                messages = collect_user_messages(user_id, token, channels=channels, max_collect=max_collect)
             except Exception as e:
                 emit({"type": "error", "message": f"{slug}: 메시지 수집 실패 — {e}", "slug": slug})
                 continue

@@ -40,21 +40,17 @@ def _validate_session_id(session_id: str) -> None:
         raise HTTPException(status_code=400, detail="invalid session_id format")
 
 
-def _get_slack_config() -> tuple[str, list[str]]:
+def _get_slack_config() -> tuple[str, list[str] | None]:
+    """SLACK_BOT_TOKEN 필수, SLACK_CHANNELS 선택(없으면 None — 자동 탐색)."""
     token = os.getenv("SLACK_BOT_TOKEN", "").strip()
-    channels_raw = os.getenv("SLACK_CHANNELS", "").strip()
-
     if not token:
         raise HTTPException(
             status_code=400,
             detail="SLACK_BOT_TOKEN이 .env에 설정되지 않았습니다.",
         )
+    channels_raw = os.getenv("SLACK_CHANNELS", "").strip()
     if not channels_raw:
-        raise HTTPException(
-            status_code=400,
-            detail="SLACK_CHANNELS가 .env에 설정되지 않았습니다.",
-        )
-
+        return token, None  # collect_user_messages에서 자동 탐색
     channels = [c.strip() for c in channels_raw.split(",") if c.strip()]
     return token, channels
 
@@ -62,6 +58,11 @@ def _get_slack_config() -> tuple[str, list[str]]:
 @router.get("/slack/discover")
 def slack_discover() -> list[dict[str, Any]]:
     token, channels = _get_slack_config()
+    if channels is None:
+        raise HTTPException(
+            status_code=400,
+            detail="SLACK_CHANNELS가 .env에 설정되지 않았습니다. 채널 탐색에는 SLACK_CHANNELS가 필요합니다.",
+        )
     try:
         return discover_users(channels, token, min_messages=3)
     except Exception as e:

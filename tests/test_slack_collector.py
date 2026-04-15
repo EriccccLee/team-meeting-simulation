@@ -187,7 +187,7 @@ from simulation.slack_collector import collect_user_messages, write_profile
 def test_collect_user_messages_filters_by_user():
     """지정 user_id의 메시지만 수집한다."""
     mock_client = MagicMock()
-    mock_client.conversations_history.return_value = {
+    mock_client.call.return_value = {
         "messages": [
             {"type": "message", "user": "UA001", "text": "오늘 배포 일정 확인했어요"},
             {"type": "message", "user": "UB002", "text": "저도 확인했습니다"},
@@ -196,8 +196,8 @@ def test_collect_user_messages_filters_by_user():
         "response_metadata": {},
     }
 
-    with patch("simulation.slack_collector.WebClient", return_value=mock_client):
-        result = collect_user_messages("UA001", ["C001"], "xoxb-fake")
+    with patch("simulation.slack_collector.RateLimitedSlackClient", return_value=mock_client):
+        result = collect_user_messages("UA001", "xoxb-fake", channels=["C001"])
 
     assert len(result) == 2
     assert "오늘 배포 일정 확인했어요" in result
@@ -207,7 +207,7 @@ def test_collect_user_messages_filters_by_user():
 def test_collect_user_messages_filters_noise():
     """이모지·단순 멘션·짧은 메시지는 제외된다."""
     mock_client = MagicMock()
-    mock_client.conversations_history.return_value = {
+    mock_client.call.return_value = {
         "messages": [
             {"type": "message", "user": "UA001", "text": "👍"},
             {"type": "message", "user": "UA001", "text": "<@UB002>"},
@@ -217,8 +217,8 @@ def test_collect_user_messages_filters_noise():
         "response_metadata": {},
     }
 
-    with patch("simulation.slack_collector.WebClient", return_value=mock_client):
-        result = collect_user_messages("UA001", ["C001"], "xoxb-fake")
+    with patch("simulation.slack_collector.RateLimitedSlackClient", return_value=mock_client):
+        result = collect_user_messages("UA001", "xoxb-fake", channels=["C001"])
 
     assert result == ["배포 완료 확인했습니다"]
 
@@ -227,7 +227,8 @@ def test_collect_user_messages_aggregates_multiple_channels():
     """여러 채널의 메시지를 합산한다."""
     mock_client = MagicMock()
 
-    def conversations_history(channel, cursor=None, limit=200):
+    def mock_call(method, **kwargs):
+        channel = kwargs.get("channel", "")
         return {
             "messages": [
                 {"type": "message", "user": "UA001", "text": f"{channel} 메시지입니다"}
@@ -235,10 +236,10 @@ def test_collect_user_messages_aggregates_multiple_channels():
             "response_metadata": {},
         }
 
-    mock_client.conversations_history.side_effect = conversations_history
+    mock_client.call.side_effect = mock_call
 
-    with patch("simulation.slack_collector.WebClient", return_value=mock_client):
-        result = collect_user_messages("UA001", ["C001", "C002"], "xoxb-fake")
+    with patch("simulation.slack_collector.RateLimitedSlackClient", return_value=mock_client):
+        result = collect_user_messages("UA001", "xoxb-fake", channels=["C001", "C002"])
 
     assert len(result) == 2
 
@@ -361,3 +362,25 @@ def test_rate_limited_client_paginate_collects_all():
         result = client.paginate("conversations_history", "messages", channel="C123")
 
     assert result == ["a", "b", "c"]
+
+
+# ── discover_channels_for_user ────────────────────────────────────────────────
+
+from simulation.slack_collector import discover_channels_for_user
+
+
+def test_discover_channels_for_user_filters_by_member():
+    """Bot이 가입한 채널 중 user_id가 멤버인 채널 ID만 반환."""
+    page1 = {
+        "channels": [{"id": "C001", "is_member": True}, {"id": "C002", "is_member": False}],
+        "response_metadata": {},
+    }
+    members_c001 = {"members": ["UA001", "UA002"], "response_metadata": {}}
+
+    mock_client = MagicMock()
+    mock_client.call.side_effect = [page1, members_c001]
+
+    with patch("simulation.slack_collector.RateLimitedSlackClient", return_value=mock_client):
+        result = discover_channels_for_user(user_id="UA001", token="xoxb-test")
+
+    assert result == ["C001"]
