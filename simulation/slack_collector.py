@@ -20,6 +20,13 @@ import re
 from datetime import datetime, timezone
 from pathlib import Path
 
+try:
+    from slack_sdk import WebClient
+    from slack_sdk.errors import SlackApiError
+except ImportError:  # slack_sdk optional at import time; used only in discover_users
+    WebClient = None  # type: ignore[assignment,misc]
+    SlackApiError = Exception  # type: ignore[assignment,misc]
+
 logger = logging.getLogger(__name__)
 
 # ── 상수 ──────────────────────────────────────────────────────────────────────
@@ -80,3 +87,81 @@ def _is_noise(text: str) -> bool:
         return True
 
     return False
+
+
+# ── Slack API: 유저 탐색 ───────────────────────────────────────────────────────
+
+def discover_users(
+    channels: list[str],
+    token: str,
+    min_messages: int = 3,
+) -> list[dict]:
+    """지정 채널에서 min_messages 이상 발화한 유저를 탐색해 반환.
+
+    Returns:
+        [{"user_id", "display_name", "message_count", "suggested_slug"}, ...]
+        메시지 수 내림차순 정렬.
+    """
+    client = WebClient(token=token)
+    user_counts: dict[str, int] = {}
+
+    for channel_id in channels:
+        try:
+            cursor = None
+            while True:
+                resp = client.conversations_history(
+                    channel=channel_id,
+                    cursor=cursor,
+                    limit=200,
+                )
+                for msg in resp.get("messages", []):
+                    if (
+                        msg.get("type") == "message"
+                        and "user" in msg
+                        and not msg.get("bot_id")
+                        and not msg.get("subtype")
+                    ):
+                        uid = msg["user"]
+                        user_counts[uid] = user_counts.get(uid, 0) + 1
+
+                next_cursor = (
+                    resp.get("response_metadata", {}).get("next_cursor") or ""
+                )
+                if next_cursor:
+                    cursor = next_cursor
+                else:
+                    break
+        except SlackApiError as e:
+            logger.warning("채널 %s 접근 불가 (스킵): %s", channel_id, e)
+
+    qualified = {
+        uid: cnt for uid, cnt in user_counts.items() if cnt >= min_messages
+    }
+
+    result: list[dict] = []
+    for user_id, count in qualified.items():
+        try:
+            user_info = client.users_info(user=user_id)["user"]
+        except SlackApiError as e:
+            logger.warning("users_info 실패 (user=%s, 스킵): %s", user_id, e)
+            continue
+
+        if user_info.get("is_bot") or user_info.get("deleted"):
+            continue
+
+        profile = user_info.get("profile", {})
+        display_name = (
+            profile.get("display_name")
+            or profile.get("real_name")
+            or user_info.get("name", user_id)
+        )
+        result.append(
+            {
+                "user_id": user_id,
+                "display_name": display_name,
+                "message_count": count,
+                "suggested_slug": generate_slug(display_name),
+            }
+        )
+
+    return sorted(result, key=lambda x: x["message_count"], reverse=True)

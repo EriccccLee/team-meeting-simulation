@@ -64,3 +64,98 @@ def test_is_noise_too_short():
 def test_is_noise_normal_message():
     assert _is_noise("오늘 배포 일정 확인했어요") is False
     assert _is_noise("내일 오후로 확정입니다") is False
+
+
+from unittest.mock import MagicMock, patch
+from simulation.slack_collector import discover_users
+
+
+def _make_mock_client(messages_by_channel, user_profile):
+    """conversations_history + users_info 를 모킹한 Slack WebClient."""
+    mock = MagicMock()
+
+    def conversations_history(channel, cursor=None, limit=200):
+        msgs = messages_by_channel.get(channel, [])
+        return {"messages": msgs, "response_metadata": {}}
+
+    mock.conversations_history.side_effect = conversations_history
+    mock.users_info.return_value = {"user": user_profile}
+    return mock
+
+
+def test_discover_users_filters_min_messages():
+    """3개 이상 메시지를 보낸 유저만 반환한다."""
+    profile = {
+        "is_bot": False,
+        "deleted": False,
+        "profile": {"display_name": "Alice", "real_name": "Alice"},
+    }
+    mock_client = _make_mock_client(
+        messages_by_channel={
+            "C001": [
+                {"type": "message", "user": "UA001", "text": "hello"},
+                {"type": "message", "user": "UA001", "text": "world"},
+                {"type": "message", "user": "UA001", "text": "test"},
+                {"type": "message", "user": "UB002", "text": "hi"},
+                {"type": "message", "user": "UB002", "text": "bye"},
+            ]
+        },
+        user_profile=profile,
+    )
+
+    with patch("simulation.slack_collector.WebClient", return_value=mock_client):
+        result = discover_users(["C001"], "xoxb-fake", min_messages=3)
+
+    # UA001 has 3 (meets threshold), UB002 has 2 (excluded)
+    assert len(result) == 1
+    assert result[0]["user_id"] == "UA001"
+    assert result[0]["message_count"] == 3
+
+
+def test_discover_users_excludes_bots():
+    """is_bot=True 인 유저는 제외된다."""
+    bot_profile = {
+        "is_bot": True,
+        "deleted": False,
+        "profile": {"display_name": "Slackbot", "real_name": "Slackbot"},
+    }
+    mock_client = _make_mock_client(
+        messages_by_channel={
+            "C001": [
+                {"type": "message", "user": "UBOT01", "text": f"msg{i}"}
+                for i in range(5)
+            ]
+        },
+        user_profile=bot_profile,
+    )
+
+    with patch("simulation.slack_collector.WebClient", return_value=mock_client):
+        result = discover_users(["C001"], "xoxb-fake", min_messages=3)
+
+    assert result == []
+
+
+def test_discover_users_sorted_by_count_desc():
+    """메시지 수 내림차순으로 정렬된다."""
+    profile = {
+        "is_bot": False,
+        "deleted": False,
+        "profile": {"display_name": "User", "real_name": "User"},
+    }
+
+    mock_client = MagicMock()
+    mock_client.conversations_history.return_value = {
+        "messages": [
+            {"type": "message", "user": "UA", "text": f"m{i}"} for i in range(5)
+        ] + [
+            {"type": "message", "user": "UB", "text": f"n{i}"} for i in range(10)
+        ],
+        "response_metadata": {},
+    }
+    mock_client.users_info.return_value = {"user": profile}
+
+    with patch("simulation.slack_collector.WebClient", return_value=mock_client):
+        result = discover_users(["C001"], "xoxb-fake", min_messages=3)
+
+    assert len(result) == 2
+    assert result[0]["message_count"] >= result[1]["message_count"]
