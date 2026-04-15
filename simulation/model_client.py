@@ -19,7 +19,7 @@ import tempfile
 logger = logging.getLogger(__name__)
 
 
-def _decode(data: bytes | None) -> str:
+def decode_bytes(data: bytes | None) -> str:
     """bytes → str. UTF-8 실패 시 cp949(한국어 Windows 기본)로 재시도."""
     if not data:
         return ""
@@ -112,8 +112,8 @@ class ClaudeCodeModelClient:
         finally:
             os.unlink(sp_file.name)  # 임시 파일 항상 삭제
 
-        stdout = _decode(result.stdout)
-        stderr = _decode(result.stderr)
+        stdout = decode_bytes(result.stdout)
+        stderr = decode_bytes(result.stderr)
 
         if result.returncode != 0:
             logger.error("claude -p stderr: %s", stderr.strip())

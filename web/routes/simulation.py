@@ -30,7 +30,7 @@ if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
 from simulation.agents import MeetingAgent, ModeratorAgent
-from simulation.model_client import ClaudeCodeModelClient
+from simulation.model_client import ClaudeCodeModelClient, decode_bytes
 from simulation.orchestrator import MeetingOrchestrator, OrchestratorConfig
 from simulation.session import MeetingSession
 from simulation.cli import _load_agent_config, _load_file_contents
@@ -171,20 +171,12 @@ def _llm_restructure(raw_text: str, filename: str, filetype: str,
     except subprocess.TimeoutExpired:
         raise RuntimeError(f"LLM 변환 타임아웃 ({timeout}초 초과): {filename}")
 
-    def _dec(b: bytes | None) -> str:
-        if not b:
-            return ""
-        try:
-            return b.decode("utf-8")
-        except UnicodeDecodeError:
-            return b.decode("cp949", errors="replace")
-
     if result.returncode != 0:
         raise RuntimeError(
-            f"LLM 변환 실패 (exit {result.returncode}): {_dec(result.stderr).strip()}"
+            f"LLM 변환 실패 (exit {result.returncode}): {decode_bytes(result.stderr).strip()}"
         )
 
-    md = _dec(result.stdout).strip()
+    md = decode_bytes(result.stdout).strip()
     if not md:
         raise RuntimeError("LLM 변환 결과가 비어있습니다.")
     return md

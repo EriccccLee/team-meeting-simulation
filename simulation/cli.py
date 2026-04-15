@@ -27,7 +27,7 @@ if hasattr(sys.stderr, "reconfigure"):
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
 from .agents import AgentConfig, MeetingAgent, ModeratorAgent, _strip_frontmatter
-from .model_client import ClaudeCodeModelClient
+from .model_client import ClaudeCodeModelClient, decode_bytes
 from .orchestrator import MeetingOrchestrator, OrchestratorConfig
 from .session import MeetingSession
 
@@ -119,16 +119,8 @@ def _pdf_to_md_via_claude(path: Path, timeout: int = 300) -> str:
     except subprocess.TimeoutExpired:
         raise RuntimeError(f"PDF 변환 타임아웃 ({timeout}초 초과): {path.name}")
 
-    def _dec(b: bytes | None) -> str:
-        if not b:
-            return ""
-        try:
-            return b.decode("utf-8")
-        except UnicodeDecodeError:
-            return b.decode("cp949", errors="replace")
-
-    stdout = _dec(result.stdout)
-    stderr = _dec(result.stderr)
+    stdout = decode_bytes(result.stdout)
+    stderr = decode_bytes(result.stderr)
 
     if result.returncode != 0:
         raise RuntimeError(
