@@ -165,3 +165,57 @@ def discover_users(
         )
 
     return sorted(result, key=lambda x: x["message_count"], reverse=True)
+
+
+# ── Slack API: 메시지 수집 ────────────────────────────────────────────────────
+
+def collect_user_messages(
+    user_id: str,
+    channels: list[str],
+    token: str,
+) -> list[str]:
+    """지정 user_id가 보낸 메시지 중 노이즈를 제거한 텍스트 목록 반환.
+
+    여러 채널을 순회하며 수집하고, _is_noise() 필터를 적용한다.
+    """
+    from slack_sdk.errors import SlackApiError
+
+    client = WebClient(token=token)
+    messages: list[str] = []
+
+    for channel_id in channels:
+        try:
+            cursor = None
+            while True:
+                resp = client.conversations_history(
+                    channel=channel_id,
+                    cursor=cursor,
+                    limit=200,
+                )
+                for msg in resp.get("messages", []):
+                    if (
+                        msg.get("type") == "message"
+                        and msg.get("user") == user_id
+                        and not msg.get("bot_id")
+                        and not msg.get("subtype")
+                    ):
+                        text = msg.get("text", "").strip()
+                        if text and not _is_noise(text):
+                            messages.append(text)
+
+                next_cursor = (
+                    resp.get("response_metadata", {}).get("next_cursor") or ""
+                )
+                if next_cursor:
+                    cursor = next_cursor
+                else:
+                    break
+        except SlackApiError as e:
+            logger.warning(
+                "채널 %s 메시지 수집 실패 (user=%s, 스킵): %s",
+                channel_id,
+                user_id,
+                e,
+            )
+
+    return messages

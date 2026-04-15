@@ -159,3 +159,65 @@ def test_discover_users_sorted_by_count_desc():
 
     assert len(result) == 2
     assert result[0]["message_count"] >= result[1]["message_count"]
+
+
+from simulation.slack_collector import collect_user_messages
+
+
+def test_collect_user_messages_filters_by_user():
+    """지정 user_id의 메시지만 수집한다."""
+    mock_client = MagicMock()
+    mock_client.conversations_history.return_value = {
+        "messages": [
+            {"type": "message", "user": "UA001", "text": "오늘 배포 일정 확인했어요"},
+            {"type": "message", "user": "UB002", "text": "저도 확인했습니다"},
+            {"type": "message", "user": "UA001", "text": "내일 오후로 확정입니다"},
+        ],
+        "response_metadata": {},
+    }
+
+    with patch("simulation.slack_collector.WebClient", return_value=mock_client):
+        result = collect_user_messages("UA001", ["C001"], "xoxb-fake")
+
+    assert len(result) == 2
+    assert "오늘 배포 일정 확인했어요" in result
+    assert "내일 오후로 확정입니다" in result
+
+
+def test_collect_user_messages_filters_noise():
+    """이모지·단순 멘션·짧은 메시지는 제외된다."""
+    mock_client = MagicMock()
+    mock_client.conversations_history.return_value = {
+        "messages": [
+            {"type": "message", "user": "UA001", "text": "👍"},
+            {"type": "message", "user": "UA001", "text": "<@UB002>"},
+            {"type": "message", "user": "UA001", "text": "배포 완료 확인했습니다"},
+            {"type": "message", "user": "UA001", "text": "네"},
+        ],
+        "response_metadata": {},
+    }
+
+    with patch("simulation.slack_collector.WebClient", return_value=mock_client):
+        result = collect_user_messages("UA001", ["C001"], "xoxb-fake")
+
+    assert result == ["배포 완료 확인했습니다"]
+
+
+def test_collect_user_messages_aggregates_multiple_channels():
+    """여러 채널의 메시지를 합산한다."""
+    mock_client = MagicMock()
+
+    def conversations_history(channel, cursor=None, limit=200):
+        return {
+            "messages": [
+                {"type": "message", "user": "UA001", "text": f"{channel} 메시지입니다"}
+            ],
+            "response_metadata": {},
+        }
+
+    mock_client.conversations_history.side_effect = conversations_history
+
+    with patch("simulation.slack_collector.WebClient", return_value=mock_client):
+        result = collect_user_messages("UA001", ["C001", "C002"], "xoxb-fake")
+
+    assert len(result) == 2
