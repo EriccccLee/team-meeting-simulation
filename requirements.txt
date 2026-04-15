@@ -8,3 +8,8 @@ pypdf>=4.0.0
 
 # 선택적 — 추후 AutoGen GroupChat 기능 추가 시:
 # autogen-agentchat>=0.4.0
+
+# 웹 프론트엔드 (FastAPI + SSE)
+fastapi>=0.111.0
+uvicorn[standard]>=0.30.0
+python-multipart>=0.0.9
