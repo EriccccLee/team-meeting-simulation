@@ -49,6 +49,10 @@
         <div v-if="isRunning" class="typing-indicator fade-in-up">
           <span /><span /><span />
         </div>
+
+        <div v-if="isRunning" class="cancel-area">
+          <button class="cancel-btn" @click="cancelMeeting">회의 중단</button>
+        </div>
       </div>
     </main>
   </div>
@@ -175,6 +179,10 @@ onMounted(async () => {
       isRunning.value = false
       isDone.value = true
       activeSpeaker.value = ''
+    } else if (event.type === 'cancelled') {
+      isRunning.value = false
+      isDone.value = true
+      feed.value.push({ type: 'moderator', content: '[시뮬레이션이 중단되었습니다]' })
     } else if (event.type === 'error') {
       isRunning.value = false
       hasError.value = true
@@ -201,6 +209,16 @@ onUnmounted(() => {
 
 function startNewMeeting() {
   es?.close()
+  router.push('/')
+}
+
+async function cancelMeeting() {
+  if (!confirm('진행 중인 시뮬레이션을 중단하시겠습니까?')) return
+  try {
+    await fetch(`/api/stream/${sessionId}`, { method: 'DELETE' })
+  } catch (_) {}
+  es?.close()
+  isRunning.value = false
   router.push('/')
 }
 </script>
@@ -284,4 +302,25 @@ function startNewMeeting() {
   0%, 60%, 100% { transform: translateY(0); opacity: 0.4; }
   30%           { transform: translateY(-6px); opacity: 1; }
 }
+
+/* 취소 버튼 */
+.cancel-area {
+  display: flex;
+  justify-content: center;
+  padding: 16px 0;
+}
+.cancel-btn {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  padding: 6px 20px;
+  background: none;
+  border: 1px solid var(--gray-400);
+  border-radius: 4px;
+  color: var(--gray-600);
+  cursor: pointer;
+  transition: border-color 0.2s, color 0.2s;
+}
+.cancel-btn:hover { border-color: #DC2626; color: #DC2626; }
 </style>
