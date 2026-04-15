@@ -24,6 +24,7 @@
 <script setup>
 import { computed } from 'vue'
 import { marked } from 'marked'
+import DOMPurify from 'dompurify'
 
 const props = defineProps({
   type:    { type: String, required: true },   // 'message' | 'moderator'
@@ -34,12 +35,12 @@ const props = defineProps({
 })
 
 const initials = computed(() =>
-  props.speaker
-    ? props.speaker.slice(0, 2)
-    : '??'
+  props.speaker ? props.speaker.slice(0, 2) : '??'
 )
 
-const renderedContent = computed(() => marked.parse(props.content || ''))
+const renderedContent = computed(() =>
+  DOMPurify.sanitize(marked.parse(props.content || ''))
+)
 </script>
 
 <style scoped>
