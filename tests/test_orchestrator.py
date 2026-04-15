@@ -1,7 +1,7 @@
 """simulation/agents.py — ModeratorAgent 단위 테스트."""
 import sys
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -9,7 +9,8 @@ _ROOT = Path(__file__).parent.parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
-from simulation.agents import ModeratorAgent
+from simulation.agents import AgentConfig, MeetingAgent, ModeratorAgent
+from simulation.orchestrator import MeetingOrchestrator, OrchestratorConfig
 
 
 def _mock_client(return_value: str) -> MagicMock:
@@ -59,3 +60,51 @@ def test_select_next_speaker_excludes_in_two_person_team():
     mod = ModeratorAgent(client, slugs)
     result = mod.select_next_speaker([], exclude="alice")
     assert result == "bob"
+
+
+# ── _make_orchestrator helper ──────────────────────────────────────────────────
+
+def _make_orchestrator(delay: float = 5.0) -> MeetingOrchestrator:
+    config = AgentConfig(name="테스터", slug="tester", skill_md="# skill", persona_md="# persona")
+    agent = MeetingAgent(config, _mock_client("response"))
+    mod_client = _mock_client("moderator response")
+    moderator = ModeratorAgent(mod_client, participant_slugs=["tester"])
+    session = MagicMock()
+    session.stream_phase = MagicMock()
+    session.stream_moderator = MagicMock()
+    session.stream_message = MagicMock()
+    orch = MeetingOrchestrator(
+        agents=[agent],
+        moderator=moderator,
+        session=session,
+        config=OrchestratorConfig(call_delay=delay, phase2_rounds=0),
+    )
+    return orch
+
+
+# ── skip_delay tests ───────────────────────────────────────────────────────────
+
+def test_call_agent_skip_delay_true_does_not_sleep():
+    orch = _make_orchestrator(delay=5.0)
+    agent = orch.agents[0]
+    with patch("time.sleep") as mock_sleep, \
+         patch.object(agent, "respond", return_value="response"):
+        orch._call_agent(agent, "topic", [], "instruction", skip_delay=True)
+    mock_sleep.assert_not_called()
+
+
+def test_call_agent_skip_delay_false_sleeps():
+    orch = _make_orchestrator(delay=5.0)
+    agent = orch.agents[0]
+    with patch("time.sleep") as mock_sleep, \
+         patch.object(agent, "respond", return_value="response"):
+        orch._call_agent(agent, "topic", [], "instruction", skip_delay=False)
+    mock_sleep.assert_called_once_with(5.0)
+
+
+def test_call_moderator_skip_delay_true_does_not_sleep():
+    orch = _make_orchestrator(delay=5.0)
+    with patch("time.sleep") as mock_sleep, \
+         patch.object(orch.moderator, "announce_opening", return_value="opening"):
+        orch._call_moderator("announce_opening", topic="t", history=[], skip_delay=True)
+    mock_sleep.assert_not_called()

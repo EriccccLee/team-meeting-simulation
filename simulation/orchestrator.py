@@ -80,7 +80,7 @@ class MeetingOrchestrator:
     def _phase1(self, topic: str) -> None:
         self.session.stream_phase("Phase 1: 초기 의견 수집")
 
-        opening = self._call_moderator("announce_opening", topic=topic, history=self.history)
+        opening = self._call_moderator("announce_opening", topic=topic, history=self.history, skip_delay=True)
         self.session.stream_moderator(opening)
         self._add_moderator(opening)
 
@@ -94,7 +94,7 @@ class MeetingOrchestrator:
     def _phase2(self, topic: str) -> None:
         self.session.stream_phase("Phase 2: 자유 토론")
 
-        transition = self._call_moderator("announce_phase", phase=2, history=self.history)
+        transition = self._call_moderator("announce_phase", phase=2, history=self.history, skip_delay=True)
         self.session.stream_moderator(transition)
         self._add_moderator(transition)
 
@@ -125,7 +125,7 @@ class MeetingOrchestrator:
     def _phase3(self, topic: str) -> str:
         self.session.stream_phase("Phase 3: 최종 입장 및 합의 도출")
 
-        transition = self._call_moderator("announce_phase", phase=3, history=self.history)
+        transition = self._call_moderator("announce_phase", phase=3, history=self.history, skip_delay=True)
         self.session.stream_moderator(transition)
         self._add_moderator(transition)
 
@@ -171,14 +171,18 @@ class MeetingOrchestrator:
         topic: str,
         history: list[dict],
         instruction: str,
+        *,
+        skip_delay: bool = False,
     ) -> str | None:
         """
         오류 처리:
           - TimeoutError  → stderr 로그 후 스킵 (회의 계속 진행)
           - RuntimeError  → stderr 로그 후 스킵
         rate limit 방지를 위해 호출 전 call_delay 초 대기합니다.
+        skip_delay=True 이면 대기를 건너뜁니다 (Phase 첫 호출 등).
         """
-        time.sleep(self.config.call_delay)
+        if not skip_delay:
+            time.sleep(self.config.call_delay)
         try:
             return agent.respond(topic, history, instruction)
         except TimeoutError:
@@ -188,9 +192,10 @@ class MeetingOrchestrator:
             logger.error("[%s] claude -p 실패: %s — 건너뜁니다", agent.config.slug, e)
             return None
 
-    def _call_moderator(self, method: str, **kwargs) -> str:
+    def _call_moderator(self, method: str, *, skip_delay: bool = False, **kwargs) -> str:
         """ModeratorAgent 호출. 실패 시 플레이스홀더 문자열 반환."""
-        time.sleep(self.config.call_delay)
+        if not skip_delay:
+            time.sleep(self.config.call_delay)
         try:
             return getattr(self.moderator, method)(**kwargs)
         except Exception as e:
