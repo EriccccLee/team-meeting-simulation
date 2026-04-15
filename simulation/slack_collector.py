@@ -724,7 +724,7 @@ def _run_extraction(
                 emit({"type": "error", "message": f"{slug}: 페르소나 생성 실패 — {e}", "slug": slug})
                 continue
 
-            # 4. 파일 생성
+            # 6. 파일 생성
             emit({"type": "writing", "slug": slug, "current": i, "total": total})
             try:
                 write_profile(slug, display_name, part_a, part_b, team_skills_dir, raw_messages=messages)

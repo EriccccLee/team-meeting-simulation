@@ -432,7 +432,7 @@ def test_discover_channels_for_user_filters_by_member():
     assert result == ["C001"]
 
 
-from simulation.slack_collector import extract_work_patterns, build_work_md
+from simulation.slack_collector import extract_work_patterns, build_work_md, extract_persona_patterns, build_persona_md
 
 
 def test_extract_work_patterns_calls_llm_with_formatted_messages():
@@ -463,3 +463,33 @@ def test_build_work_md_formats_with_name():
     call_kwargs = str(mock_client.call.call_args)
     assert "홍길동" in call_kwargs
     assert "분석 결과" in call_kwargs
+
+
+def test_extract_persona_patterns_calls_llm_with_formatted_messages():
+    """extract_persona_patterns이 _format_messages_for_llm을 거쳐 LLM을 호출한다."""
+    messages = [
+        {"content": "회의에서 의견을 명확하게 전달하는 편입니다", "ts": "1", "channel": "C001", "is_thread_starter": True},
+    ]
+    mock_client = MagicMock()
+    mock_client.call.return_value = "페르소나 분석 결과"
+
+    result = extract_persona_patterns(messages, mock_client, max_messages=10)
+
+    assert result == "페르소나 분석 결과"
+    assert mock_client.call.called
+    call_kwargs = mock_client.call.call_args
+    assert "토론 시작 메시지" in str(call_kwargs)
+
+
+def test_build_persona_md_formats_with_name():
+    """build_persona_md가 display_name과 분석 결과를 LLM에 전달한다."""
+    mock_client = MagicMock()
+    mock_client.call.return_value = "# Persona Profile"
+
+    result = build_persona_md("페르소나 분석 결과", "김철수", mock_client)
+
+    assert result == "# Persona Profile"
+    assert mock_client.call.called
+    call_kwargs = str(mock_client.call.call_args)
+    assert "김철수" in call_kwargs
+    assert "페르소나 분석 결과" in call_kwargs
