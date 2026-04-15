@@ -22,16 +22,13 @@ from typing import Annotated
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
 
-# simulation 패키지가 상위 디렉터리에 있으므로 sys.path 조정
 _ROOT = Path(__file__).parent.parent.parent
-if str(_ROOT) not in sys.path:
-    sys.path.insert(0, str(_ROOT))
 
 from simulation.agents import MeetingAgent, ModeratorAgent
 from simulation.model_client import ClaudeCodeModelClient, run_claude_prompt
 from simulation.orchestrator import MeetingOrchestrator, OrchestratorConfig
 from simulation.session import MeetingSession
-from simulation.cli import _load_agent_config, _load_file_contents
+from simulation.loader import load_agent_config as _load_agent_config, load_file_contents as _load_file_contents
 
 router = APIRouter()
 

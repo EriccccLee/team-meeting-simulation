@@ -12,7 +12,6 @@ plan.md §4-6 참조.
 from __future__ import annotations
 
 import argparse
-import json
 import logging
 import sys
 from pathlib import Path
@@ -24,7 +23,8 @@ if hasattr(sys.stdout, "reconfigure"):
 if hasattr(sys.stderr, "reconfigure"):
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
-from .agents import AgentConfig, MeetingAgent, ModeratorAgent, _strip_frontmatter
+from .agents import MeetingAgent, ModeratorAgent
+from .loader import load_agent_config as _load_agent_config, load_file_contents as _load_file_contents
 from .model_client import ClaudeCodeModelClient, run_claude_prompt
 from .orchestrator import MeetingOrchestrator, OrchestratorConfig
 from .session import MeetingSession
@@ -41,33 +41,6 @@ logging.basicConfig(
 
 def _all_slugs() -> list[str]:
     return sorted(p.name for p in TEAM_SKILLS_DIR.iterdir() if p.is_dir())
-
-
-def _load_agent_config(slug: str) -> AgentConfig:
-    member_dir = TEAM_SKILLS_DIR / slug
-    skill_path = member_dir / "SKILL.md"
-    persona_path = member_dir / "persona.md"
-    meta_path = member_dir / "meta.json"
-
-    if not skill_path.exists():
-        raise FileNotFoundError(f"SKILL.md 없음: '{slug}'")
-
-    meta: dict = {}
-    if meta_path.exists():
-        meta = json.loads(meta_path.read_text(encoding="utf-8"))
-
-    # "이창영3 [leecy]" → "이창영3"
-    raw_name = meta.get("name", slug)
-    name = raw_name.split("[")[0].strip()
-
-    skill_md = _strip_frontmatter(skill_path.read_text(encoding="utf-8"))
-    persona_md = (
-        _strip_frontmatter(persona_path.read_text(encoding="utf-8"))
-        if persona_path.exists()
-        else ""
-    )
-
-    return AgentConfig(slug=slug, name=name, skill_md=skill_md, persona_md=persona_md)
 
 
 def _pdf_to_md_via_claude(path: Path, timeout: int = 300) -> str:
@@ -116,26 +89,6 @@ def _pdf_to_md_via_claude(path: Path, timeout: int = 300) -> str:
     print(f"[변환 파일 저장] {md_path}")
 
     return md
-
-
-def _load_file_contents(file_paths: list[str]) -> dict[str, str]:
-    contents: dict[str, str] = {}
-    for fp in file_paths:
-        path = Path(fp)
-        if not path.exists():
-            print(f"[경고] 첨부 파일을 찾을 수 없습니다: {fp}", file=sys.stderr)
-            continue
-        try:
-            if path.suffix.lower() == ".pdf":
-                print(f"[PDF 변환 중] {path.name} → claude 로 마크다운 변환 중... (최대 5분 소요)")
-                md = _pdf_to_md_via_claude(path)
-                print(f"[PDF 변환 완료] {len(md)}자 추출")
-                contents[path.stem + ".md"] = md  # .pdf → .md 로 이름 변경
-            else:
-                contents[path.name] = path.read_text(encoding="utf-8")
-        except Exception as e:
-            print(f"[경고] {path.name} 처리 실패: {e} — 건너뜁니다.", file=sys.stderr)
-    return contents
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────

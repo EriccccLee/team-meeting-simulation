@@ -10,7 +10,6 @@ import json
 import os
 import queue as stdlib_queue
 import re
-import sys
 import uuid
 from pathlib import Path
 from typing import Any
@@ -21,8 +20,6 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, field_validator
 
 _ROOT = Path(__file__).parent.parent.parent
-if str(_ROOT) not in sys.path:
-    sys.path.insert(0, str(_ROOT))
 
 load_dotenv(_ROOT / ".env", override=False)
 
