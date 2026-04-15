@@ -217,6 +217,7 @@ async function cancelMeeting() {
   try {
     await fetch(`/api/stream/${sessionId}`, { method: 'DELETE' })
   } catch (_) {}
+  isDone.value = true  // prevent onerror from setting hasError spuriously
   es?.close()
   isRunning.value = false
   router.push('/')
