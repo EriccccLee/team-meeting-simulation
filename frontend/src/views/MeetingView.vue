@@ -41,6 +41,10 @@
         <span class="status-dot" :class="statusClass" />
         <span class="status-text">{{ statusText }}</span>
       </div>
+
+      <button class="new-meeting-btn" @click="startNewMeeting">
+        ＋ 새 회의 시작
+      </button>
     </aside>
 
     <!-- 우측 채팅 영역 -->
@@ -204,6 +208,11 @@ onMounted(() => {
 onUnmounted(() => {
   es?.close()
 })
+
+function startNewMeeting() {
+  es?.close()
+  router.push('/')
+}
 </script>
 
 <style scoped>
@@ -249,7 +258,25 @@ onUnmounted(() => {
 .step-label { font-size: 12px; color: var(--gray-800); }
 
 /* 상태 표시 */
-.sidebar-footer { margin-top: auto; display: flex; align-items: center; gap: 8px; }
+.sidebar-footer { display: flex; align-items: center; gap: 8px; margin-top: auto; }
+
+/* 새 회의 버튼 */
+.new-meeting-btn {
+  width: 100%;
+  margin-top: 12px;
+  padding: 8px 0;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  background: none;
+  border: 1px solid var(--gray-200);
+  border-radius: 4px;
+  color: var(--gray-600);
+  cursor: pointer;
+  transition: border-color 0.2s, color 0.2s;
+}
+.new-meeting-btn:hover { border-color: var(--orange); color: var(--orange); }
 .status-dot { width: 8px; height: 8px; border-radius: 50%; }
 .status-dot.running { background: var(--orange); animation: pulse 1.4s ease-in-out infinite; }
 .status-dot.done { background: #16A34A; }

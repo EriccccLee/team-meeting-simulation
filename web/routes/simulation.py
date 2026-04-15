@@ -192,6 +192,31 @@ def _pptx_to_md_via_claude(filename: str, raw: bytes) -> str:
 
 # ── 시뮬레이션 실행 (동기, 별도 스레드) ──────────────────────────────────────
 
+def _save_history(session_id: str, topic: str, participant_slugs: list[str],
+                  events: list[dict]) -> None:
+    """시뮬레이션 이벤트를 JSON 으로 저장 (outputs/history/{session_id}.json)."""
+    import datetime
+    history_dir = _ROOT / "outputs" / "history"
+    history_dir.mkdir(parents=True, exist_ok=True)
+
+    # preprocessing / sentinel 제외, 순수 시뮬레이션 이벤트만 저장
+    feed = [e for e in events
+            if e.get("type") in ("phase", "message", "moderator", "done", "error")]
+
+    data = {
+        "session_id": session_id,
+        "topic": topic,
+        "participants": participant_slugs,
+        "timestamp": datetime.datetime.now().isoformat(),
+        "feed": feed,
+    }
+    try:
+        path = history_dir / f"{session_id}.json"
+        path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    except Exception as e:
+        print(f"[history] 저장 실패: {e}", file=sys.stderr)
+
+
 def _run_simulation(
     session_id: str,
     topic: str,
@@ -205,8 +230,10 @@ def _run_simulation(
     SSE generator 쪽에서 get_nowait() 폴링으로 소비함.
     """
     q = _sessions[session_id]
+    events_log: list[dict] = []  # 히스토리 저장용
 
     def emit(event: dict) -> None:
+        events_log.append(event)
         q.put(event)  # SimpleQueue.put() is thread-safe
 
     try:
@@ -281,6 +308,7 @@ def _run_simulation(
         result = orchestrator.run(topic, file_contents)
 
         emit({"type": "done", "output_file": str(result.output_file)})
+        _save_history(session_id, topic, participant_slugs, events_log)
 
     except Exception as e:
         emit({"type": "error", "message": str(e)})

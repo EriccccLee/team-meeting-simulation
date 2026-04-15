@@ -81,6 +81,28 @@
         {{ isSubmitting ? '시뮬레이션 시작 중...' : '시뮬레이션 시작 ──────────' }}
       </button>
     </footer>
+
+    <!-- 회의 기록 -->
+    <section v-if="historyList.length" class="history-section">
+      <p class="history-label">HISTORY</p>
+      <ul class="history-list">
+        <li
+          v-for="h in historyList"
+          :key="h.session_id"
+          class="history-item"
+          @click="router.push(`/history/${h.session_id}`)"
+        >
+          <div class="h-left">
+            <span class="h-topic">{{ h.topic }}</span>
+            <span class="h-participants">{{ h.participants.join(' · ') }}</span>
+          </div>
+          <div class="h-right">
+            <span class="h-date">{{ formatDate(h.timestamp) }}</span>
+            <button class="h-del" @click.stop="deleteHistory(h.session_id)" title="삭제">×</button>
+          </div>
+        </li>
+      </ul>
+    </section>
   </div>
 </template>
 
@@ -89,6 +111,7 @@ import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 
 const router = useRouter()
+const historyList = ref([])
 
 const topic = ref('')
 const files = ref([])
@@ -113,7 +136,22 @@ onMounted(async () => {
   } finally {
     loadingParticipants.value = false
   }
+
+  try {
+    const res = await fetch('/api/history')
+    historyList.value = await res.json()
+  } catch (_) {}
 })
+
+function formatDate(iso) {
+  const d = new Date(iso)
+  return `${d.getFullYear()}.${String(d.getMonth()+1).padStart(2,'0')}.${String(d.getDate()).padStart(2,'0')} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`
+}
+
+async function deleteHistory(sessionId) {
+  await fetch(`/api/history/${sessionId}`, { method: 'DELETE' })
+  historyList.value = historyList.value.filter(h => h.session_id !== sessionId)
+}
 
 function onDrop(e) {
   isDragging.value = false
@@ -293,4 +331,49 @@ async function startSimulation() {
 .btn-start { min-width: 280px; padding: 14px 28px; font-size: 13px; }
 .error-msg { color: #DC2626; font-size: 13px; }
 .loading-text { color: var(--gray-400); font-size: 13px; }
+
+/* 회의 기록 */
+.history-section {
+  padding: 32px 0 48px;
+  border-top: 1px solid var(--gray-200);
+  margin-top: 8px;
+}
+.history-label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  color: var(--gray-400);
+  text-transform: uppercase;
+  margin-bottom: 12px;
+}
+.history-list { list-style: none; display: flex; flex-direction: column; gap: 6px; }
+.history-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border: 1px solid var(--gray-200);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: border-color 0.2s, background 0.2s;
+}
+.history-item:hover { border-color: var(--gray-400); background: var(--gray-50); }
+.h-left { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.h-topic {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--black);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 480px;
+}
+.h-participants { font-family: var(--font-mono); font-size: 11px; color: var(--gray-400); }
+.h-right { display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
+.h-date { font-family: var(--font-mono); font-size: 11px; color: var(--gray-600); }
+.h-del {
+  background: none; border: none; cursor: pointer;
+  font-size: 16px; color: var(--gray-400); line-height: 1; padding: 0 4px;
+}
+.h-del:hover { color: #DC2626; }
 </style>

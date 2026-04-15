@@ -8,6 +8,9 @@ venv/
 # 생성된 회의록 (outputs/.gitkeep 은 유지)
 outputs/*.md
 
+# 회의 기록 JSON (로컬 전용)
+outputs/history/
+
 # PDF 변환 캐시
 *.converted.md
 
