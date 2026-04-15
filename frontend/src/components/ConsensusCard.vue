@@ -6,22 +6,19 @@
         <span class="card-tag">CONSENSUS</span>
         <span class="card-sub">팀 합의 결과</span>
       </div>
-      <div class="card-body">
-        <p v-for="(line, i) in lines" :key="i" class="line" :class="{ empty: !line.trim() }">
-          <span v-if="line.trim()">{{ line }}</span>
-        </p>
-      </div>
+      <div class="card-body md-body" v-html="renderedContent" />
     </div>
   </div>
 </template>
 
 <script setup>
 import { computed } from 'vue'
+import { marked } from 'marked'
 import PhaseHeader from './PhaseHeader.vue'
 
 const props = defineProps({ content: { type: String, required: true } })
 
-const lines = computed(() => props.content.split('\n'))
+const renderedContent = computed(() => marked.parse(props.content || ''))
 </script>
 
 <style scoped>
@@ -55,13 +52,8 @@ const lines = computed(() => props.content.split('\n'))
 .card-body {
   padding: 20px 24px;
   background: var(--white);
-}
-
-.line {
   font-size: 14px;
   line-height: 1.7;
   color: var(--gray-800);
-  white-space: pre-wrap;
 }
-.line.empty { height: 8px; }
 </style>

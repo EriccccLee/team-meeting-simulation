@@ -32,7 +32,7 @@
             <input ref="fileInput" type="file" multiple hidden @change="onFileChange" />
             <span v-if="!files.length" class="drop-hint">
               드래그 & 드롭 또는 클릭하여 파일 선택<br />
-              <span class="drop-sub">.md .txt .pdf 지원</span>
+              <span class="drop-sub">.md .txt .pdf .xlsx .csv .docx 지원</span>
             </span>
             <ul v-else class="file-list">
               <li v-for="(f, i) in files" :key="i" class="file-item">

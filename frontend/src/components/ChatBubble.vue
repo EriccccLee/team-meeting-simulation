@@ -2,7 +2,7 @@
   <div class="bubble fade-in-up" :class="type">
     <!-- 사회자 -->
     <template v-if="type === 'moderator'">
-      <p class="mod-text">{{ content }}</p>
+      <div class="mod-text md-body" v-html="renderedContent" />
     </template>
 
     <!-- 팀원 -->
@@ -15,7 +15,7 @@
           <span class="speaker">{{ speaker }}</span>
           <span class="tag">{{ slug }}</span>
         </div>
-        <p class="content">{{ content }}</p>
+        <div class="content md-body" v-html="renderedContent" />
       </div>
     </template>
   </div>
@@ -23,6 +23,7 @@
 
 <script setup>
 import { computed } from 'vue'
+import { marked } from 'marked'
 
 const props = defineProps({
   type:    { type: String, required: true },   // 'message' | 'moderator'
@@ -37,6 +38,8 @@ const initials = computed(() =>
     ? props.speaker.slice(0, 2)
     : '??'
 )
+
+const renderedContent = computed(() => marked.parse(props.content || ''))
 </script>
 
 <style scoped>
@@ -102,7 +105,6 @@ const initials = computed(() =>
   padding: 10px 14px;
   border-radius: 0 8px 8px 8px;
   border: 1px solid var(--gray-200);
-  white-space: pre-wrap;
   word-break: break-word;
 }
 </style>

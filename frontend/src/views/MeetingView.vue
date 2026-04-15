@@ -51,6 +51,20 @@
           <h1 class="topic-title">{{ topic }}</h1>
         </div>
 
+        <!-- 파일 전처리 진행 상황 -->
+        <div v-if="preprocessingFiles.length" class="preprocessing-panel fade-in-up">
+          <p class="pre-title">
+            <span class="pre-spinner" v-if="isPreprocessing" />
+            {{ isPreprocessing ? '파일 변환 중...' : '파일 변환 완료' }}
+          </p>
+          <ul class="pre-list">
+            <li v-for="f in preprocessingFiles" :key="f.filename" class="pre-item">
+              <span class="pre-check" :class="{ done: f.done }">{{ f.done ? '✓' : '○' }}</span>
+              <span class="pre-msg">{{ f.message }}</span>
+            </li>
+          </ul>
+        </div>
+
         <template v-for="(item, i) in feed" :key="i">
           <PhaseHeader v-if="item.type === 'phase'" :label="item.label" />
           <ConsensusCard v-else-if="item.type === 'consensus'" :content="item.content" />
@@ -92,6 +106,8 @@ const isRunning = ref(true)
 const isDone = ref(false)
 const hasError = ref(false)
 const chatArea = ref(null)
+const preprocessingFiles = ref([])  // [{filename, message, done}]
+const isPreprocessing = computed(() => preprocessingFiles.value.some(f => !f.done))
 
 let es = null  // EventSource
 
@@ -134,7 +150,15 @@ onMounted(() => {
   es.onmessage = async (e) => {
     const event = JSON.parse(e.data)
 
-    if (event.type === 'phase') {
+    if (event.type === 'preprocessing') {
+      const existing = preprocessingFiles.value.find(f => f.filename === event.filename)
+      if (existing) {
+        existing.message = event.message
+        existing.done = event.done
+      } else {
+        preprocessingFiles.value.push({ filename: event.filename, message: event.message, done: event.done })
+      }
+    } else if (event.type === 'phase') {
       currentPhase.value = parseInt(event.label.match(/\d+/)?.[0] || '0')
       feed.value.push({ type: 'phase', label: event.label })
     } else if (event.type === 'moderator') {
@@ -259,6 +283,40 @@ onUnmounted(() => {
 .topic-title {
   font-size: 22px; font-weight: 700; color: var(--black); line-height: 1.3;
 }
+
+/* 파일 전처리 패널 */
+.preprocessing-panel {
+  border: 1px solid var(--gray-200);
+  border-radius: 6px;
+  padding: 14px 16px;
+  margin-bottom: 20px;
+  background: var(--gray-50);
+}
+.pre-title {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--gray-600);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.pre-spinner {
+  width: 10px; height: 10px;
+  border: 2px solid var(--gray-400);
+  border-top-color: var(--orange);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  flex-shrink: 0;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.pre-list { list-style: none; display: flex; flex-direction: column; gap: 6px; }
+.pre-item { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--gray-800); }
+.pre-check { font-family: var(--font-mono); font-size: 11px; color: var(--gray-400); width: 14px; flex-shrink: 0; }
+.pre-check.done { color: #16A34A; }
+.pre-msg { flex: 1; }
 
 /* 타이핑 인디케이터 */
 .typing-indicator {
