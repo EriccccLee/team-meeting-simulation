@@ -8,6 +8,7 @@ preprocessing 이벤트로 진행 상황을 실시간 전달합니다.
 from __future__ import annotations
 
 import asyncio
+import datetime
 import io
 import json
 import queue as stdlib_queue
@@ -206,7 +207,6 @@ def _pptx_to_md_via_claude(filename: str, raw: bytes) -> str:
 def _save_history(session_id: str, topic: str, participant_slugs: list[str],
                   events: list[dict]) -> None:
     """시뮬레이션 이벤트를 JSON 으로 저장 (outputs/history/{session_id}.json)."""
-    import datetime
     history_dir = _ROOT / "outputs" / "history"
     history_dir.mkdir(parents=True, exist_ok=True)
 
