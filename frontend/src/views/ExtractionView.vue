@@ -57,6 +57,7 @@
               class="impression-input"
               v-model="c.impression"
               placeholder="한 마디 인상 (선택사항)"
+              maxlength="200"
               :disabled="!selectedIds.includes(c.user_id)"
             />
           </div>
@@ -320,7 +321,7 @@ function subscribeSSE(sessionId) {
 }
 
 function sanitizeSlug(c) {
-  c.editedSlug = c.editedSlug.replace(/[^a-z0-9_]/g, '').toLowerCase()
+  c.editedSlug = c.editedSlug.toLowerCase().replace(/[^a-z0-9_]/g, '')
 }
 
 function activateStep(member, key) {
