@@ -104,6 +104,30 @@ def test_extract_invalid_body_returns_422():
     assert res.status_code == 422
 
 
+def test_extract_missing_user_id_returns_422():
+    """members 항목에 user_id가 없으면 422."""
+    from fastapi.testclient import TestClient
+    from web.app import app
+    client = TestClient(app, raise_server_exceptions=False)
+    res = client.post(
+        "/api/slack/extract",
+        json={
+            "members": [{"slug": "test", "display_name": "Test"}],
+            "max_collect": 2000,
+            "max_messages": 300,
+        },
+    )
+    assert res.status_code == 422
+
+
+def test_extract_slug_sanitized():
+    """slug에 특수문자가 포함되면 sanitize된 값으로 저장된다."""
+    from web.routes.slack_extraction import ExtractMember
+    m = ExtractMember(user_id="UA001", slug="Test-User.123", display_name="Test")
+    # re.sub(r"[^a-z0-9_]", "", v.lower()) 적용
+    assert m.slug == "testuser123"
+
+
 def test_extract_member_role_coerces_invalid_to_general():
     from web.routes.slack_extraction import ExtractMember
     m = ExtractMember(user_id="UA001", slug="test", display_name="Test", role="engineer")
