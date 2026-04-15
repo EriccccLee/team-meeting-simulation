@@ -17,7 +17,9 @@ from typing import Any
 from dotenv import load_dotenv
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+import re as _re
+
+from pydantic import BaseModel, field_validator
 
 _ROOT = Path(__file__).parent.parent.parent
 if str(_ROOT) not in sys.path:
@@ -68,6 +70,14 @@ class ExtractMember(BaseModel):
     user_id: str
     slug: str
     display_name: str
+
+    @field_validator("slug")
+    @classmethod
+    def slug_must_be_safe(cls, v: str) -> str:
+        sanitized = _re.sub(r"[^a-z0-9_]", "", v.lower())
+        if not sanitized:
+            raise ValueError("slug must contain at least one alphanumeric character")
+        return sanitized
 
 
 @router.post("/slack/extract")

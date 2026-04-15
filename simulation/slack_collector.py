@@ -178,8 +178,6 @@ def collect_user_messages(
 
     여러 채널을 순회하며 수집하고, _is_noise() 필터를 적용한다.
     """
-    from slack_sdk.errors import SlackApiError
-
     client = WebClient(token=token)
     messages: list[str] = []
 
@@ -366,6 +364,7 @@ def write_profile(
         "name": display_name,
         "version": "v1",
         "source": "slack",
+        "message_count": len(raw_messages) if raw_messages else 0,
         "created_at": now,
         "updated_at": now,
         "corrections_count": 0,

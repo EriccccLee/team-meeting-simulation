@@ -96,6 +96,8 @@
         </div>
       </div>
 
+      <p v-if="globalError" class="global-error">{{ globalError }}</p>
+
       <div v-if="isDone" class="done-banner">
         ✓ 모든 팀원 스킬 추출 완료! 잠시 후 메인 화면으로 이동합니다...
       </div>
@@ -124,6 +126,7 @@ const isDiscovering = ref(false)
 const isExtracting = ref(false)
 const discoverError = ref('')
 const extractError = ref('')
+const globalError = ref('')
 
 const canExtract = computed(
   () =>
@@ -259,6 +262,8 @@ function subscribeSSE(sessionId) {
         m.errored = true
         m.errorMsg = data.message
       }
+    } else if (data.type === 'error') {
+      globalError.value = data.message
     }
   }
 
@@ -455,6 +460,8 @@ function completeStep(member, key) {
   color: #DC2626;
   font-family: var(--font-mono);
 }
+
+.global-error { color: #DC2626; font-size: 13px; margin-top: 12px; }
 
 .done-banner {
   margin-top: 24px;
