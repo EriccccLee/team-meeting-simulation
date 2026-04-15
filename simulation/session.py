@@ -11,6 +11,7 @@ from __future__ import annotations
 import sys
 from datetime import datetime
 from pathlib import Path
+from typing import Callable
 
 
 class MeetingSession:
@@ -21,6 +22,9 @@ class MeetingSession:
     - stream_message  : 팀원 발언 출력
     - stream_moderator: 사회자 발언 출력
     - save            : outputs/ 에 마크다운 파일 저장
+
+    emit 콜백이 주어지면 각 stream_* 호출 시 이벤트 dict 를 emit(event) 로 전달합니다.
+    CLI 경로에서는 emit=None 으로 기존 동작이 유지됩니다.
     """
 
     def __init__(
@@ -28,12 +32,14 @@ class MeetingSession:
         topic: str,
         participants: list[str],
         output_dir: str = "outputs",
+        emit: Callable[[dict], None] | None = None,
     ) -> None:
         self.topic = topic
         self.participants = participants
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.started_at = datetime.now()
+        self._emit = emit
 
         # 파일 저장용 버퍼 (마크다운 형식)
         self._sections: list[str] = []
@@ -44,6 +50,8 @@ class MeetingSession:
         bar = "=" * 40
         self._print(f"\n{bar}\n[{phase_name}]\n{bar}\n")
         self._sections.append(f"\n## {phase_name}\n")
+        if self._emit:
+            self._emit({"type": "phase", "label": phase_name})
 
     def stream_message(self, speaker: str, content: str, slug: str = "") -> None:
         """팀원 발언 출력."""
@@ -53,11 +61,15 @@ class MeetingSession:
 
         md_heading = f"### {speaker}" + (f" ({slug})" if slug else "")
         self._sections.append(f"\n{md_heading}\n{content}\n")
+        if self._emit:
+            self._emit({"type": "message", "speaker": speaker, "slug": slug, "content": content})
 
     def stream_moderator(self, content: str) -> None:
         """사회자 발언 출력."""
         self._print(f"\n[사회자] {content}")
         self._sections.append(f"\n**[사회자]**: {content}\n")
+        if self._emit:
+            self._emit({"type": "moderator", "content": content})
 
     @staticmethod
     def _print(text: str) -> None:
