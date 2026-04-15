@@ -11,6 +11,8 @@ import asyncio
 import io
 import json
 import queue as stdlib_queue
+import shutil
+import subprocess
 import sys
 import tempfile
 import uuid
@@ -125,6 +127,69 @@ def _decode_text(raw: bytes) -> str:
         return raw.decode("cp949", errors="replace")
 
 
+def _llm_restructure(raw_text: str, filename: str, filetype: str,
+                     timeout: int = 180) -> str:
+    """라이브러리로 추출한 텍스트를 claude -p 로 구조화된 마크다운으로 재구성.
+
+    바이너리 파일을 LLM에 직접 넘기는 게 아니라 라이브러리가 추출한
+    텍스트를 프롬프트에 포함시켜 LLM이 의미적으로 재구조화하는 방식.
+    """
+    prompt = (
+        f"다음은 {filetype} 파일({filename})에서 추출한 원본 내용입니다. "
+        f"이를 잘 구조화된 마크다운 문서로 변환해주세요.\n\n"
+        f"원본 내용:\n---\n{raw_text}\n---\n\n"
+        "변환 규칙:\n"
+        "- 제목/소제목 계층을 # ## ### 로 유지\n"
+        "- 표는 마크다운 표(| col | col |) 형식으로 재구성\n"
+        "- 리스트는 - 또는 숫자 형식으로\n"
+        "- 내용의 흐름과 맥락을 파악해 논리적으로 구조화\n"
+        "- 내용을 요약하지 말고 전체를 변환\n"
+        "- 마크다운 코드블록 래퍼(```markdown) 없이 바로 마크다운 내용만 출력"
+    )
+
+    exe = shutil.which("claude") or "claude"
+    if sys.platform == "win32":
+        cmd = ["cmd.exe", "/c", exe]
+    else:
+        cmd = [exe]
+    cmd += ["-p", prompt, "--output-format", "text", "--no-session-persistence"]
+
+    try:
+        result = subprocess.run(cmd, capture_output=True, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        raise RuntimeError(f"LLM 변환 타임아웃 ({timeout}초 초과): {filename}")
+
+    def _dec(b: bytes | None) -> str:
+        if not b:
+            return ""
+        try:
+            return b.decode("utf-8")
+        except UnicodeDecodeError:
+            return b.decode("cp949", errors="replace")
+
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"LLM 변환 실패 (exit {result.returncode}): {_dec(result.stderr).strip()}"
+        )
+
+    md = _dec(result.stdout).strip()
+    if not md:
+        raise RuntimeError("LLM 변환 결과가 비어있습니다.")
+    return md
+
+
+def _docx_to_md_via_claude(filename: str, raw: bytes) -> str:
+    """docx → 라이브러리 추출 → LLM 재구조화"""
+    raw_text = _docx_to_md(filename, raw)
+    return _llm_restructure(raw_text, filename, "Word 문서")
+
+
+def _pptx_to_md_via_claude(filename: str, raw: bytes) -> str:
+    """pptx → 라이브러리 추출 → LLM 재구조화"""
+    raw_text = _pptx_to_md(filename, raw)
+    return _llm_restructure(raw_text, filename, "PowerPoint 프레젠테이션")
+
+
 # ── 시뮬레이션 실행 (동기, 별도 스레드) ──────────────────────────────────────
 
 def _run_simulation(
@@ -184,13 +249,13 @@ def _run_simulation(
                 pre(f"CSV 변환 완료: {filename}", done=True)
 
             elif ext == ".docx":
-                pre(f"Word 문서 변환 중: {filename}")
-                file_contents[filename] = _docx_to_md(filename, raw)
+                pre(f"Word 문서 LLM 변환 중: {filename} (최대 3분 소요)")
+                file_contents[filename] = _docx_to_md_via_claude(filename, raw)
                 pre(f"Word 문서 변환 완료: {filename}", done=True)
 
             elif ext == ".pptx":
-                pre(f"PowerPoint 변환 중: {filename}")
-                file_contents[filename] = _pptx_to_md(filename, raw)
+                pre(f"PowerPoint LLM 변환 중: {filename} (최대 3분 소요)")
+                file_contents[filename] = _pptx_to_md_via_claude(filename, raw)
                 pre(f"PowerPoint 변환 완료: {filename}", done=True)
 
             else:
