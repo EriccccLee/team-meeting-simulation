@@ -17,12 +17,12 @@ _ROOT = Path(__file__).parent.parent.parent
 HISTORY_DIR = _ROOT / "outputs" / "history"
 
 _UUID_RE = re.compile(
-    r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    r"[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}"
 )
 
 
 def _validate_session_id(session_id: str) -> None:
-    if not _UUID_RE.match(session_id):
+    if not _UUID_RE.fullmatch(session_id):
         raise HTTPException(status_code=400, detail="invalid session_id format")
 
 
@@ -54,7 +54,7 @@ def list_history() -> list[dict]:
     return result
 
 
-@router.get("/history/{session_id:path}")
+@router.get("/history/{session_id}")
 def get_history(session_id: str) -> dict:
     """특정 회의의 전체 데이터(피드 포함) 반환."""
     _validate_session_id(session_id)
@@ -67,7 +67,7 @@ def get_history(session_id: str) -> dict:
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.delete("/history/{session_id:path}")
+@router.delete("/history/{session_id}")
 def delete_history(session_id: str) -> dict:
     """특정 회의 기록 삭제."""
     _validate_session_id(session_id)
