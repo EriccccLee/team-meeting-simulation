@@ -76,10 +76,11 @@ class RateLimitedSlackClient:
                 return getattr(self._client, method)(**kwargs).data
             except SlackApiError as e:
                 if e.response.get("error") == "ratelimited":
-                    wait = min(
-                        float(e.response.headers.get("Retry-After", attempt)),
-                        _RETRY_MAX_WAIT,
-                    )
+                    try:
+                        retry_after = float(e.response.headers.get("Retry-After", attempt))
+                    except (TypeError, ValueError):
+                        retry_after = float(attempt)
+                    wait = min(retry_after, _RETRY_MAX_WAIT)
                     logger.warning(
                         "Rate limited — %.0fs 대기 (시도 %d/%d)",
                         wait, attempt, _MAX_RETRIES,
@@ -90,7 +91,11 @@ class RateLimitedSlackClient:
         raise RuntimeError(f"Slack API {method} — {_MAX_RETRIES}회 재시도 후 실패")
 
     def paginate(self, method: str, result_key: str, **kwargs) -> list:
-        """cursor 기반 페이지네이션으로 result_key 항목 전체를 수집."""
+        """cursor 기반 페이지네이션으로 result_key 항목 전체를 수집.
+
+        Note: 'cursor' must not be passed in kwargs — it is managed internally.
+        """
+        kwargs.pop("cursor", None)  # guard against accidental cursor kwarg
         items: list = []
         cursor = None
         while True:
