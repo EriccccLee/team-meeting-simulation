@@ -58,7 +58,7 @@ def run_claude_prompt(
         TimeoutError: 타임아웃 초과
         RuntimeError: non-zero exit code
     """
-    exe = shutil.which("claude") or "claude"
+    exe = _CLAUDE_EXE
     if _IS_WINDOWS:
         cmd = ["cmd.exe", "/c", exe]
     else:
