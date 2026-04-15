@@ -80,10 +80,16 @@ class ExtractMember(BaseModel):
         return sanitized
 
 
+class ExtractRequest(BaseModel):
+    members: list[ExtractMember]
+    max_collect: int = 2000
+    max_messages: int = 300
+
+
 @router.post("/slack/extract")
-async def slack_extract(members: list[ExtractMember]) -> dict[str, str]:
+async def slack_extract(req: ExtractRequest) -> dict[str, str]:
     """추출 세션 시작. session_id 즉시 반환하고 백그라운드에서 추출 실행."""
-    if not members:
+    if not req.members:
         raise HTTPException(status_code=400, detail="추출할 팀원을 1명 이상 선택하세요.")
 
     token, channels = _get_slack_config()
@@ -92,7 +98,7 @@ async def slack_extract(members: list[ExtractMember]) -> dict[str, str]:
     q: stdlib_queue.SimpleQueue = stdlib_queue.SimpleQueue()
     _sessions[session_id] = q
 
-    members_dicts = [m.model_dump() for m in members]
+    members_dicts = [m.model_dump() for m in req.members]
 
     loop = asyncio.get_running_loop()
     loop.run_in_executor(
@@ -103,6 +109,8 @@ async def slack_extract(members: list[ExtractMember]) -> dict[str, str]:
         channels,
         q,
         _TEAM_SKILLS_DIR,
+        req.max_collect,
+        req.max_messages,
     )
 
     return {"session_id": session_id}

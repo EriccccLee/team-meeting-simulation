@@ -37,17 +37,34 @@
             <span class="cand-name">{{ c.display_name }}</span>
             <span class="cand-badge">{{ c.message_count }}개</span>
           </div>
-          <div class="slug-group">
-            <label class="slug-label">slug</label>
-            <input
-              class="slug-input"
-              v-model="slugMap[c.user_id]"
-              spellcheck="false"
-              :class="{ invalid: !slugMap[c.user_id]?.trim() && selectedIds.includes(c.user_id) }"
-            />
-          </div>
+          <span class="slug-tag">{{ c.suggested_slug }}</span>
         </li>
       </ul>
+      <!-- 메시지 한도 설정 -->
+      <div class="limit-panel">
+        <p class="section-label">추출 설정</p>
+        <div class="limit-row">
+          <label class="limit-label">
+            메시지 수집 한도
+            <span
+              class="tooltip-icon"
+              title="Slack API에서 유저당 수집할 최대 메시지 수.&#10;5000 이상은 Rate Limit 위험 (초당 API 호출 제한).&#10;10000 이상은 수집 시간이 매우 길어짐."
+            >?</span>
+          </label>
+          <input type="number" class="limit-input" v-model.number="maxCollect" min="100" max="10000" step="100" />
+        </div>
+        <div class="limit-row">
+          <label class="limit-label">
+            LLM 분석 메시지 수
+            <span
+              class="tooltip-icon"
+              title="Claude에 전달할 최대 메시지 수.&#10;300까지 안전 (약 60K 토큰).&#10;1000 이상은 컨텍스트 초과 위험."
+            >?</span>
+          </label>
+          <input type="number" class="limit-input" v-model.number="maxMessages" min="50" max="500" step="50" />
+        </div>
+      </div>
+
       <div v-if="extractError" class="error-msg">{{ extractError }}</div>
       <footer class="footer">
         <button
@@ -106,7 +123,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed } from 'vue'
+import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 
 const router = useRouter()
@@ -115,7 +132,6 @@ const router = useRouter()
 const step = ref(1)
 const candidates = ref([])
 const selectedIds = ref([])
-const slugMap = reactive({})
 
 const members = ref([])
 const currentSlug = ref(null)
@@ -128,11 +144,11 @@ const discoverError = ref('')
 const extractError = ref('')
 const globalError = ref('')
 
-const canExtract = computed(
-  () =>
-    selectedIds.value.length > 0 &&
-    selectedIds.value.every(id => slugMap[id]?.trim())
-)
+// 추출 설정 (프론트에서 조정 가능)
+const maxCollect = ref(2000)
+const maxMessages = ref(300)
+
+const canExtract = computed(() => selectedIds.value.length > 0)
 
 // ── Step 1: 탐색 ──────────────────────────────────────────────────────────────
 async function doDiscover() {
@@ -154,10 +170,6 @@ async function doDiscover() {
     }
 
     selectedIds.value = candidates.value.map(c => c.user_id)
-    candidates.value.forEach(c => {
-      slugMap[c.user_id] = c.suggested_slug
-    })
-
     step.value = 2
   } catch (e) {
     discoverError.value = e.message
@@ -176,7 +188,7 @@ async function doExtract() {
   )
   const body = selected.map(c => ({
     user_id: c.user_id,
-    slug: slugMap[c.user_id].trim(),
+    slug: c.suggested_slug,
     display_name: c.display_name,
   }))
 
@@ -199,7 +211,11 @@ async function doExtract() {
     const res = await fetch('/api/slack/extract', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
+      body: JSON.stringify({
+        members: body,
+        max_collect: maxCollect.value,
+        max_messages: maxMessages.value,
+      }),
     })
     if (!res.ok) {
       const data = await res.json().catch(() => ({}))
@@ -397,25 +413,16 @@ function completeStep(member, key) {
   padding: 2px 8px;
   color: var(--gray-600);
 }
-.slug-group { display: flex; align-items: center; gap: 6px; }
-.slug-label {
+.slug-tag {
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 11px;
   color: var(--gray-400);
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-}
-.slug-input {
-  width: 120px;
-  padding: 5px 8px;
+  background: var(--gray-50);
   border: 1px solid var(--gray-200);
   border-radius: 3px;
-  font-family: var(--font-mono);
-  font-size: 12px;
-  outline: none;
+  padding: 2px 7px;
+  flex-shrink: 0;
 }
-.slug-input:focus { border-color: var(--black); }
-.slug-input.invalid { border-color: #DC2626; }
 
 .step3 { max-width: 540px; }
 .member-card {
@@ -472,4 +479,54 @@ function completeStep(member, key) {
   font-size: 14px;
   color: #15803D;
 }
+
+/* 추출 설정 패널 */
+.limit-panel {
+  margin-top: 20px;
+  padding: 16px;
+  border: 1px solid var(--gray-200);
+  border-radius: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.limit-panel .section-label { margin-bottom: 4px; }
+.limit-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.limit-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--gray-600);
+}
+.tooltip-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--gray-200);
+  color: var(--gray-600);
+  font-size: 10px;
+  font-style: normal;
+  cursor: help;
+}
+.tooltip-icon:hover { background: var(--gray-400); color: #fff; }
+.limit-input {
+  width: 90px;
+  padding: 5px 8px;
+  border: 1px solid var(--gray-200);
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  text-align: right;
+}
+.limit-input:focus { outline: none; border-color: var(--black); }
 </style>

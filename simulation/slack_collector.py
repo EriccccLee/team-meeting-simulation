@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import queue as stdlib_queue
 import re
 from datetime import datetime, timezone
@@ -155,17 +156,29 @@ def discover_users(
             or profile.get("real_name")
             or user_info.get("name", user_id)
         )
+        # 슬러그: "[leecy]" 브라켓 안 값 우선 사용, 없으면 이름 로마자 변환
+        bracket_match = re.search(r"\[([^\]]+)\]", display_name)
+        if bracket_match:
+            suggested_slug = bracket_match.group(1).strip().lower()
+        else:
+            slug_name = re.sub(r"\s*\[.*?\]\s*$", "", display_name).strip()
+            suggested_slug = generate_slug(slug_name)
         result.append(
             {
                 "user_id": user_id,
                 "display_name": display_name,
                 "message_count": count,
-                "suggested_slug": generate_slug(display_name),
+                "suggested_slug": suggested_slug,
             }
         )
 
     return sorted(result, key=lambda x: x["message_count"], reverse=True)
 
+
+# ── 메시지 한도 상수 (프론트엔드 기본값과 동기화) ────────────────────────────
+
+_DEFAULT_MAX_COLLECT = 2000   # Slack API 수집 상한
+_DEFAULT_MAX_MESSAGES = 300   # LLM 전달 상한
 
 # ── Slack API: 메시지 수집 ────────────────────────────────────────────────────
 
@@ -173,6 +186,7 @@ def collect_user_messages(
     user_id: str,
     channels: list[str],
     token: str,
+    max_collect: int = _DEFAULT_MAX_COLLECT,
 ) -> list[str]:
     """지정 user_id가 보낸 메시지 중 노이즈를 제거한 텍스트 목록 반환.
 
@@ -204,7 +218,7 @@ def collect_user_messages(
                 next_cursor = (
                     resp.get("response_metadata", {}).get("next_cursor") or ""
                 )
-                if next_cursor:
+                if next_cursor and len(messages) < max_collect:
                     cursor = next_cursor
                 else:
                     break
@@ -215,6 +229,8 @@ def collect_user_messages(
                 user_id,
                 e,
             )
+        if len(messages) >= max_collect:
+            break
 
     return messages
 
@@ -282,7 +298,6 @@ PERSONA_ANALYSIS_PROMPT = """\
 - 마크다운 코드블록 래퍼(```markdown) 없이 바로 마크다운 내용만 출력하세요
 """
 
-_MAX_MESSAGES_FOR_ANALYSIS = 100  # LLM에 전달할 최대 메시지 수
 
 
 # ── LLM 분석 ──────────────────────────────────────────────────────────────────
@@ -290,9 +305,10 @@ _MAX_MESSAGES_FOR_ANALYSIS = 100  # LLM에 전달할 최대 메시지 수
 def analyze_work(
     messages: list[str],
     model_client,  # ClaudeCodeModelClient — 순환 임포트 방지로 타입 힌트 생략
+    max_messages: int = _DEFAULT_MAX_MESSAGES,
 ) -> str:
     """수집된 메시지로 Part A (업무 프로필) 마크다운 생성."""
-    sample = messages[:_MAX_MESSAGES_FOR_ANALYSIS]
+    sample = messages[:max_messages]
     msg_block = "\n---\n".join(sample)
     prompt = WORK_ANALYSIS_PROMPT + f"\n\n## Slack 메시지 목록\n\n{msg_block}"
     return model_client.call(
@@ -304,9 +320,10 @@ def analyze_work(
 def analyze_persona(
     messages: list[str],
     model_client,
+    max_messages: int = _DEFAULT_MAX_MESSAGES,
 ) -> str:
     """수집된 메시지로 Part B (페르소나) 마크다운 생성."""
-    sample = messages[:_MAX_MESSAGES_FOR_ANALYSIS]
+    sample = messages[:max_messages]
     msg_block = "\n---\n".join(sample)
     prompt = PERSONA_ANALYSIS_PROMPT + f"\n\n## Slack 메시지 목록\n\n{msg_block}"
     return model_client.call(
@@ -392,6 +409,8 @@ def _run_extraction(
     channels: list[str],
     q: stdlib_queue.SimpleQueue,
     team_skills_dir: Path,
+    max_collect: int = _DEFAULT_MAX_COLLECT,
+    max_messages: int = _DEFAULT_MAX_MESSAGES,
 ) -> None:
     """팀원 목록을 순차 처리하며 SSE 이벤트를 q에 emit.
 
@@ -416,7 +435,7 @@ def _run_extraction(
             # 1. 메시지 수집
             emit({"type": "collecting", "slug": slug, "current": i, "total": total})
             try:
-                messages = collect_user_messages(user_id, channels, token)
+                messages = collect_user_messages(user_id, channels, token, max_collect=max_collect)
             except Exception as e:
                 emit({"type": "error", "message": f"{slug}: 메시지 수집 실패 — {e}", "slug": slug})
                 continue
@@ -428,7 +447,7 @@ def _run_extraction(
             # 2. 업무 분석
             emit({"type": "analyzing", "slug": slug, "step": "work", "current": i, "total": total})
             try:
-                part_a = analyze_work(messages, model_client)
+                part_a = analyze_work(messages, model_client, max_messages=max_messages)
             except Exception as e:
                 emit({"type": "error", "message": f"{slug}: 업무 분석 실패 — {e}", "slug": slug})
                 continue
@@ -436,7 +455,7 @@ def _run_extraction(
             # 3. 페르소나 분석
             emit({"type": "analyzing", "slug": slug, "step": "persona", "current": i, "total": total})
             try:
-                part_b = analyze_persona(messages, model_client)
+                part_b = analyze_persona(messages, model_client, max_messages=max_messages)
             except Exception as e:
                 emit({"type": "error", "message": f"{slug}: 페르소나 분석 실패 — {e}", "slug": slug})
                 continue

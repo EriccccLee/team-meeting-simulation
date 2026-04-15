@@ -395,7 +395,26 @@ autogen-agentchat>=0.4.0   # AssistantAgent 인터페이스 참조용 (선택)
 
 ---
 
-## 10. 미결 사항 / 향후 고려
+## 10. 인증 환경별 호환성
+
+`claude -p` subprocess는 **현재 Claude Code의 인증을 그대로 재사용**하므로 별도 API 키 불필요.
+
+| 환경 | authMethod | 동작 여부 |
+|------|-----------|---------|
+| Nexon Vertex AI (현재) | `third_party` / vertex | ✅ gcloud 인증 자동 사용 |
+| Claude Pro 구독 (OAuth) | `oauth` / anthropic | ✅ keychain 토큰 자동 사용 |
+| Anthropic API Key | `api_key` / anthropic | ✅ env var 자동 사용 |
+
+현재 인증 상태 확인 방법:
+```bash
+claude auth status
+```
+
+**Claude Pro 사용자 주의**: 1회 시뮬레이션 = 약 17~20회 `claude -p` 호출 발생. 연속 실행 시 rate limit에 걸릴 수 있음. `--rounds` 를 낮게 설정하거나 실행 간 간격을 두는 것을 권장.
+
+---
+
+## 11. 미결 사항 / 향후 고려
 
 - **병렬 호출**: Phase 1 초기 의견 수집 시 팀원들을 asyncio로 병렬 호출 가능 (속도 향상). 초기 버전은 순차 구현 후 고려.
 - **Streamlit UI**: CLI 검증 후 웹 UI 추가 가능성
