@@ -9,7 +9,7 @@ from __future__ import annotations
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from .routes import history, participants, simulation
+from .routes import history, participants, simulation, slack_extraction
 
 app = FastAPI(title="Team Meeting Simulation API")
 
@@ -24,3 +24,4 @@ app.add_middleware(
 app.include_router(participants.router, prefix="/api")
 app.include_router(simulation.router, prefix="/api")
 app.include_router(history.router, prefix="/api")
+app.include_router(slack_extraction.router, prefix="/api")
