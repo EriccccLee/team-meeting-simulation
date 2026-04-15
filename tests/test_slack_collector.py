@@ -200,8 +200,9 @@ def test_collect_user_messages_filters_by_user():
         result = collect_user_messages("UA001", "xoxb-fake", channels=["C001"])
 
     assert len(result) == 2
-    assert "오늘 배포 일정 확인했어요" in result
-    assert "내일 오후로 확정입니다" in result
+    contents = [m["content"] if isinstance(m, dict) else m for m in result]
+    assert "오늘 배포 일정 확인했어요" in contents
+    assert "내일 오후로 확정입니다" in contents
 
 
 def test_collect_user_messages_filters_noise():
@@ -220,7 +221,8 @@ def test_collect_user_messages_filters_noise():
     with patch("simulation.slack_collector.RateLimitedSlackClient", return_value=mock_client):
         result = collect_user_messages("UA001", "xoxb-fake", channels=["C001"])
 
-    assert result == ["배포 완료 확인했습니다"]
+    contents = [m["content"] if isinstance(m, dict) else m for m in result]
+    assert contents == ["배포 완료 확인했습니다"]
 
 
 def test_collect_user_messages_aggregates_multiple_channels():
@@ -375,10 +377,11 @@ def test_discover_channels_for_user_filters_by_member():
         "channels": [{"id": "C001", "is_member": True}, {"id": "C002", "is_member": False}],
         "response_metadata": {},
     }
-    members_c001 = {"members": ["UA001", "UA002"], "response_metadata": {}}
 
     mock_client = MagicMock()
-    mock_client.call.side_effect = [page1, members_c001]
+    mock_client.call.side_effect = [page1]
+    # inner member-check now uses paginate() — return the member list directly
+    mock_client.paginate.return_value = ["UA001", "UA002"]
 
     with patch("simulation.slack_collector.RateLimitedSlackClient", return_value=mock_client):
         result = discover_channels_for_user(user_id="UA001", token="xoxb-test")

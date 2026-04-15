@@ -270,6 +270,8 @@ def discover_channels_for_user(
         for ch in data.get("channels", []):
             if ch.get("is_member"):
                 channels.append(ch)
+                if len(channels) >= channel_limit:
+                    break
         cursor = (data.get("response_metadata") or {}).get("next_cursor")
         if not cursor:
             break
@@ -278,15 +280,7 @@ def discover_channels_for_user(
     result = []
     for ch in channels:
         try:
-            members: list[str] = []
-            cursor = None
-            while True:
-                extra = {"cursor": cursor} if cursor else {}
-                data = client.call("conversations_members", channel=ch["id"], limit=200, **extra)
-                members.extend(data.get("members", []))
-                cursor = (data.get("response_metadata") or {}).get("next_cursor")
-                if not cursor:
-                    break
+            members = client.paginate("conversations_members", "members", channel=ch["id"], limit=200)
             if user_id in members:
                 result.append(ch["id"])
         except SlackApiError:
