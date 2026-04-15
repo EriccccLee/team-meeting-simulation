@@ -38,6 +38,15 @@
       </ul>
     </div>
 
+    <div class="sidebar-section" v-if="attachments.length">
+      <p class="sidebar-label">ATTACHMENTS</p>
+      <ul class="attach-list">
+        <li v-for="(name, i) in attachments" :key="i" class="attach-item">
+          {{ name }}
+        </li>
+      </ul>
+    </div>
+
     <div class="sidebar-footer">
       <span class="status-dot" :class="statusDot" />
       <span class="status-text">{{ statusText }}</span>
@@ -57,6 +66,7 @@ defineProps({
   phases:       { type: Array,   default: () => [] },
   statusDot:    { type: String,  default: '' },
   statusText:   { type: String,  default: '' },
+  attachments:  { type: Array,   default: () => [] },
 })
 
 defineEmits(['new-meeting'])
@@ -96,6 +106,17 @@ defineEmits(['new-meeting'])
 .phase-step.done { opacity: 0.6; }
 .step-num { font-family: var(--font-mono); font-size: 11px; color: var(--orange); width: 20px; }
 .step-label { font-size: 12px; color: var(--gray-800); }
+
+/* 첨부 파일 목록 */
+.attach-list { list-style: none; display: flex; flex-direction: column; gap: 4px; }
+.attach-item {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--gray-600);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
 /* 상태 표시 */
 .sidebar-footer { display: flex; align-items: center; gap: 8px; margin-top: auto; }

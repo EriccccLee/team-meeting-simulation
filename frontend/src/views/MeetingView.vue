@@ -8,6 +8,7 @@
       :phases="phaseSteps"
       :status-dot="statusClass"
       :status-text="statusText"
+      :attachments="attachedFiles"
       @new-meeting="startNewMeeting"
     />
 
@@ -81,6 +82,7 @@ const hasError = ref(false)
 const chatArea = ref(null)
 const preprocessingFiles = ref([])  // [{filename, message, done}]
 const isPreprocessing = computed(() => preprocessingFiles.value.some(f => !f.done))
+const attachedFiles = ref([])
 
 let es = null  // EventSource
 
@@ -156,6 +158,9 @@ onMounted(async () => {
       } else {
         preprocessingFiles.value.push({ filename: event.filename, message: event.message, done: event.done })
       }
+      if (!attachedFiles.value.includes(event.filename)) {
+        attachedFiles.value.push(event.filename)
+      }
     } else if (event.type === 'phase') {
       currentPhase.value = parseInt(event.label.match(/\d+/)?.[0] || '0')
       feed.value.push({ type: 'phase', label: event.label })
@@ -209,6 +214,8 @@ onUnmounted(() => {
 
 function startNewMeeting() {
   es?.close()
+  sessionStorage.removeItem('participants')
+  sessionStorage.removeItem('topic')
   router.push('/')
 }
 
