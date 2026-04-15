@@ -41,7 +41,7 @@
     <div class="sidebar-section" v-if="attachments.length">
       <p class="sidebar-label">ATTACHMENTS</p>
       <ul class="attach-list">
-        <li v-for="(name, i) in attachments" :key="i" class="attach-item">
+        <li v-for="name in attachments" :key="name" class="attach-item">
           {{ name }}
         </li>
       </ul>
