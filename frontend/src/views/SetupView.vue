@@ -81,6 +81,7 @@
       >
         {{ isSubmitting ? '시뮬레이션 시작 중...' : '시뮬레이션 시작 ──────────' }}
       </button>
+      <p class="estimate" v-if="canStart">예상 소요 시간: 약 {{ estimatedMinutes }}분</p>
     </footer>
 
     <!-- 회의 기록 -->
@@ -95,7 +96,7 @@
         >
           <div class="h-left">
             <span class="h-topic">{{ h.topic }}</span>
-            <span class="h-participants">{{ h.participants.join(' · ') }}</span>
+            <span class="h-participants">{{ participantNames(h.participants) }}</span>
           </div>
           <div class="h-right">
             <span class="h-date">{{ formatDate(h.timestamp) }}</span>
@@ -128,6 +129,11 @@ const fileInput = ref(null)
 
 const canStart = computed(() => topic.value.trim() && selectedSlugs.value.length > 0)
 
+const estimatedMinutes = computed(() => {
+  const calls = selectedSlugs.value.length * 2 + rounds.value + 5
+  return Math.ceil(calls * 30 / 60)
+})
+
 onMounted(async () => {
   try {
     const res = await fetch('/api/participants')
@@ -149,17 +155,31 @@ onMounted(async () => {
   } catch (_) {}
 })
 
+function participantNames(slugs) {
+  return slugs.map(slug => {
+    const p = allParticipants.value.find(pp => pp.slug === slug)
+    return p ? p.name : slug
+  }).join(' · ')
+}
+
 async function deleteHistory(sessionId) {
+  if (!confirm('이 회의 기록을 삭제하시겠습니까?')) return
   await fetch(`/api/history/${sessionId}`, { method: 'DELETE' })
   historyList.value = historyList.value.filter(h => h.session_id !== sessionId)
 }
 
+function addFiles(incoming) {
+  const existingNames = new Set(files.value.map(f => f.name))
+  const unique = Array.from(incoming).filter(f => !existingNames.has(f.name))
+  files.value.push(...unique)
+}
 function onDrop(e) {
   isDragging.value = false
-  files.value.push(...Array.from(e.dataTransfer.files))
+  addFiles(e.dataTransfer.files)
 }
 function onFileChange(e) {
-  files.value.push(...Array.from(e.target.files))
+  addFiles(e.target.files)
+  e.target.value = ''
 }
 function removeFile(i) {
   files.value.splice(i, 1)
@@ -346,6 +366,12 @@ async function startSimulation() {
 }
 .btn-start { min-width: 280px; padding: 14px 28px; font-size: 13px; }
 .error-msg { color: #DC2626; font-size: 13px; }
+.estimate {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--gray-400);
+  letter-spacing: 0.04em;
+}
 .loading-text { color: var(--gray-400); font-size: 13px; }
 
 /* 회의 기록 */
