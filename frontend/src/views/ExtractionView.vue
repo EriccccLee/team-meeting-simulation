@@ -37,7 +37,29 @@
             <span class="cand-name">{{ c.display_name }}</span>
             <span class="cand-badge">{{ c.message_count }}개</span>
           </div>
-          <span class="slug-tag">{{ c.suggested_slug }}</span>
+          <div class="cand-intake">
+            <input
+              class="slug-input"
+              v-model="c.editedSlug"
+              @input="sanitizeSlug(c)"
+              placeholder="slug"
+              :disabled="!selectedIds.includes(c.user_id)"
+            />
+            <select class="role-select" v-model="c.role" :disabled="!selectedIds.includes(c.user_id)">
+              <option value="general">역할 선택</option>
+              <option value="backend">백엔드 엔지니어</option>
+              <option value="frontend">프론트엔드 엔지니어</option>
+              <option value="ml">AI/ML 엔지니어</option>
+              <option value="pm">프로덕트 매니저</option>
+              <option value="data">데이터 분석가</option>
+            </select>
+            <input
+              class="impression-input"
+              v-model="c.impression"
+              placeholder="한 마디 인상 (선택사항)"
+              :disabled="!selectedIds.includes(c.user_id)"
+            />
+          </div>
         </li>
       </ul>
       <!-- 메시지 한도 설정 -->
@@ -161,7 +183,13 @@ async function doDiscover() {
       const body = await res.json().catch(() => ({}))
       throw new Error(body.detail || `서버 오류 (${res.status})`)
     }
-    candidates.value = await res.json()
+    const raw = await res.json()
+    candidates.value = raw.map(c => ({
+      ...c,
+      editedSlug: c.suggested_slug,
+      role: 'general',
+      impression: '',
+    }))
 
     if (!candidates.value.length) {
       discoverError.value =
@@ -188,8 +216,10 @@ async function doExtract() {
   )
   const body = selected.map(c => ({
     user_id: c.user_id,
-    slug: c.suggested_slug,
+    slug: c.editedSlug || c.suggested_slug,
     display_name: c.display_name,
+    role: c.role || 'general',
+    impression: c.impression || '',
   }))
 
   members.value = body.map((m, i) => ({
@@ -200,10 +230,12 @@ async function doExtract() {
     errored: false,
     errorMsg: '',
     steps: [
-      { key: 'collecting', label: '메시지 수집',    done: false, active: false },
-      { key: 'work',       label: '업무 스킬 분석', done: false, active: false },
-      { key: 'persona',    label: '페르소나 분석',  done: false, active: false },
-      { key: 'writing',    label: '파일 생성',      done: false, active: false },
+      { key: 'collecting',      label: '메시지 수집',      done: false, active: false },
+      { key: 'work_extract',    label: '업무 패턴 추출',   done: false, active: false },
+      { key: 'work_build',      label: '업무 프로필 생성', done: false, active: false },
+      { key: 'persona_extract', label: '페르소나 추출',    done: false, active: false },
+      { key: 'persona_build',   label: '페르소나 생성',    done: false, active: false },
+      { key: 'writing',         label: '파일 생성',        done: false, active: false },
     ],
   }))
 
@@ -250,14 +282,15 @@ function subscribeSSE(sessionId) {
 
     } else if (data.type === 'analyzing') {
       if (member) {
-        const prevKey = data.step === 'work' ? 'collecting' : 'work'
-        completeStep(member, prevKey)
+        const stepOrder = ['collecting', 'work_extract', 'work_build', 'persona_extract', 'persona_build', 'writing']
+        const currentIdx = stepOrder.indexOf(data.step)
+        if (currentIdx > 0) completeStep(member, stepOrder[currentIdx - 1])
         activateStep(member, data.step)
       }
 
     } else if (data.type === 'writing') {
       if (member) {
-        completeStep(member, 'persona')
+        completeStep(member, 'persona_build')
         activateStep(member, 'writing')
       }
 
@@ -284,6 +317,10 @@ function subscribeSSE(sessionId) {
   }
 
   es.onerror = () => es.close()
+}
+
+function sanitizeSlug(c) {
+  c.editedSlug = c.editedSlug.replace(/[^a-z0-9_]/g, '').toLowerCase()
 }
 
 function activateStep(member, key) {
@@ -413,16 +450,44 @@ function completeStep(member, key) {
   padding: 2px 8px;
   color: var(--gray-600);
 }
-.slug-tag {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  color: var(--gray-400);
-  background: var(--gray-50);
-  border: 1px solid var(--gray-200);
-  border-radius: 3px;
-  padding: 2px 7px;
+.cand-intake {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   flex-shrink: 0;
 }
+.slug-input {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  width: 90px;
+  padding: 3px 7px;
+  border: 1px solid var(--gray-200);
+  border-radius: 3px;
+  background: var(--gray-50);
+  color: var(--black);
+}
+.slug-input:focus { outline: none; border-color: var(--orange); }
+.slug-input:disabled { color: var(--gray-400); }
+.role-select {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 3px 6px;
+  border: 1px solid var(--gray-200);
+  border-radius: 3px;
+  background: var(--gray-50);
+  color: var(--gray-600);
+}
+.role-select:disabled { color: var(--gray-400); }
+.impression-input {
+  font-size: 12px;
+  width: 140px;
+  padding: 3px 7px;
+  border: 1px solid var(--gray-200);
+  border-radius: 3px;
+  background: var(--gray-50);
+}
+.impression-input:focus { outline: none; border-color: var(--orange); }
+.impression-input:disabled { color: var(--gray-400); }
 
 .step3 { max-width: 540px; }
 .member-card {
