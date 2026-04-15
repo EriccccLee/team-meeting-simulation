@@ -430,3 +430,36 @@ def test_discover_channels_for_user_filters_by_member():
         result = discover_channels_for_user(user_id="UA001", token="xoxb-test")
 
     assert result == ["C001"]
+
+
+from simulation.slack_collector import extract_work_patterns, build_work_md
+
+
+def test_extract_work_patterns_calls_llm_with_formatted_messages():
+    """extract_work_patterns이 _format_messages_for_llm을 거쳐 LLM을 호출한다."""
+    messages = [
+        {"content": "Snowflake 쿼리 최적화 작업했어요", "ts": "1", "channel": "C001", "is_thread_starter": True},
+    ]
+    mock_client = MagicMock()
+    mock_client.call.return_value = "분석 결과"
+
+    result = extract_work_patterns(messages, mock_client, max_messages=10)
+
+    assert result == "분석 결과"
+    assert mock_client.call.called
+    call_kwargs = mock_client.call.call_args
+    assert "토론 시작 메시지" in str(call_kwargs)
+
+
+def test_build_work_md_formats_with_name():
+    """build_work_md가 display_name과 분석 결과를 LLM에 전달한다."""
+    mock_client = MagicMock()
+    mock_client.call.return_value = "# Work Profile"
+
+    result = build_work_md("분석 결과", "홍길동", mock_client)
+
+    assert result == "# Work Profile"
+    assert mock_client.call.called
+    call_kwargs = str(mock_client.call.call_args)
+    assert "홍길동" in call_kwargs
+    assert "분석 결과" in call_kwargs

@@ -457,6 +457,101 @@ def _format_messages_for_llm(
     return "\n".join(lines)
 
 
+# ── Stage 1: 패턴 추출 프롬프트 ───────────────────────────────────────────────
+
+_WORK_EXTRACT_PROMPT = """\
+다음 팀원의 Slack 메시지를 분석해 아래 4개 차원의 패턴을 **구조화된 데이터**로 추출하세요.
+이 출력은 두 번째 단계에서 마크다운 프로필로 변환됩니다.
+
+출력 형식:
+[업무 역할] 이 사람이 실제로 담당하는 업무 영역 (구체적 예시 포함)
+[기술 스택] 언급된 언어·도구·플랫폼 목록
+[업무 스타일] 문제 접근 방식, 실행 패턴, 선호하는 작업 방식
+[소통 패턴] 보고 방식, 협업 스타일, 피드백 방식
+
+각 항목에 실제 메시지를 인용해 근거를 제시하세요.
+"""
+
+_WORK_BUILD_PROMPT = """\
+다음은 한 팀원의 Slack 메시지 분석 결과입니다. 이를 바탕으로 '{name}'의 업무 역량 프로필(Part A)을 **한국어 마크다운**으로 작성하세요.
+
+분석 결과:
+{analysis}
+
+출력 형식: ### 주요 업무 역할 / ### 기술 스택 / ### 업무 처리 스타일 / ### 업무 커뮤니케이션 패턴
+마크다운 코드블록 래퍼 없이 마크다운 내용만 출력하세요.
+"""
+
+_PERSONA_EXTRACT_PROMPT = """\
+다음 팀원의 Slack 메시지를 분석해 아래 6개 차원의 페르소나 패턴을 **구조화된 데이터**로 추출하세요.
+
+[표현 스타일] 고빈도 단어, 문장 길이, 이모지 사용, 공식성(1-5)
+[의사결정 패턴] 행동 유발 요인, 회피 유발 요인, 반대 표현 방식(실제 메시지 인용)
+[대인관계] 상사/동료/부하에게 각각 어떻게 다르게 행동하는가
+[절대 원칙] 어떤 상황에서도 변하지 않는 행동 3-5가지 (형용사 금지, 구체적 행동)
+[핵심 정체성] 스스로를 어떻게 인식하는가, 무엇을 중요하게 여기는가
+[압박 반응] 마감·비판·책임 전가 상황에서의 구체적 행동 변화
+
+모든 주장에 실제 메시지를 인용해 근거를 제시하세요.
+"""
+
+_PERSONA_BUILD_PROMPT = """\
+다음은 한 팀원의 Slack 메시지 페르소나 분석 결과입니다. '{name}'의 페르소나 프로필(Part B)을 **한국어 마크다운**으로 작성하세요.
+
+분석 결과:
+{analysis}
+
+출력 형식: Layer 0 절대 행동 원칙 / Layer 1 핵심 정체성 / Layer 2 표현 스타일 / Layer 3 의사결정·문제해결 / Layer 4 대인관계 패턴 / 실행 규칙
+마크다운 코드블록 래퍼 없이 마크다운 내용만 출력하세요.
+"""
+
+
+def extract_work_patterns(
+    messages: list[dict],
+    model_client,
+    max_messages: int = _DEFAULT_MAX_MESSAGES,
+) -> str:
+    """Stage 1: 메시지에서 업무 패턴을 구조화 데이터로 추출."""
+    msg_block = _format_messages_for_llm(messages, max_messages)
+    prompt = _WORK_EXTRACT_PROMPT + f"\n\n## 메시지\n\n{msg_block}"
+    return model_client.call(
+        system_prompt=_WORK_SYSTEM,
+        messages=[{"slug": "user", "speaker": "user", "content": prompt}],
+    )
+
+
+def build_work_md(analysis: str, display_name: str, model_client) -> str:
+    """Stage 2: 업무 패턴 분석 결과를 work.md 포맷으로 변환."""
+    prompt = _WORK_BUILD_PROMPT.format(name=display_name, analysis=analysis)
+    return model_client.call(
+        system_prompt=_WORK_SYSTEM,
+        messages=[{"slug": "user", "speaker": "user", "content": prompt}],
+    )
+
+
+def extract_persona_patterns(
+    messages: list[dict],
+    model_client,
+    max_messages: int = _DEFAULT_MAX_MESSAGES,
+) -> str:
+    """Stage 1: 메시지에서 페르소나 패턴을 구조화 데이터로 추출."""
+    msg_block = _format_messages_for_llm(messages, max_messages)
+    prompt = _PERSONA_EXTRACT_PROMPT + f"\n\n## 메시지\n\n{msg_block}"
+    return model_client.call(
+        system_prompt=_PERSONA_SYSTEM,
+        messages=[{"slug": "user", "speaker": "user", "content": prompt}],
+    )
+
+
+def build_persona_md(analysis: str, display_name: str, model_client) -> str:
+    """Stage 2: 페르소나 패턴 분석 결과를 persona.md 포맷으로 변환."""
+    prompt = _PERSONA_BUILD_PROMPT.format(name=display_name, analysis=analysis)
+    return model_client.call(
+        system_prompt=_PERSONA_SYSTEM,
+        messages=[{"slug": "user", "speaker": "user", "content": prompt}],
+    )
+
+
 def analyze_work(
     messages: list[dict],
     model_client,  # ClaudeCodeModelClient — 순환 임포트 방지로 타입 힌트 생략
@@ -597,20 +692,36 @@ def _run_extraction(
                 emit({"type": "error", "message": f"{slug}: 필터링 후 메시지가 없습니다.", "slug": slug})
                 continue
 
-            # 2. 업무 분석
-            emit({"type": "analyzing", "slug": slug, "step": "work", "current": i, "total": total})
+            # 2. 업무 패턴 추출 (Stage 1)
+            emit({"type": "analyzing", "slug": slug, "step": "work_extract", "current": i, "total": total})
             try:
-                part_a = analyze_work(messages, model_client, max_messages=max_messages)
+                work_analysis = extract_work_patterns(messages, model_client, max_messages=max_messages)
             except Exception as e:
-                emit({"type": "error", "message": f"{slug}: 업무 분석 실패 — {e}", "slug": slug})
+                emit({"type": "error", "message": f"{slug}: 업무 패턴 추출 실패 — {e}", "slug": slug})
                 continue
 
-            # 3. 페르소나 분석
-            emit({"type": "analyzing", "slug": slug, "step": "persona", "current": i, "total": total})
+            # 3. 업무 프로필 빌드 (Stage 2)
+            emit({"type": "analyzing", "slug": slug, "step": "work_build", "current": i, "total": total})
             try:
-                part_b = analyze_persona(messages, model_client, max_messages=max_messages)
+                part_a = build_work_md(work_analysis, display_name, model_client)
             except Exception as e:
-                emit({"type": "error", "message": f"{slug}: 페르소나 분석 실패 — {e}", "slug": slug})
+                emit({"type": "error", "message": f"{slug}: 업무 프로필 생성 실패 — {e}", "slug": slug})
+                continue
+
+            # 4. 페르소나 패턴 추출 (Stage 1)
+            emit({"type": "analyzing", "slug": slug, "step": "persona_extract", "current": i, "total": total})
+            try:
+                persona_analysis = extract_persona_patterns(messages, model_client, max_messages=max_messages)
+            except Exception as e:
+                emit({"type": "error", "message": f"{slug}: 페르소나 패턴 추출 실패 — {e}", "slug": slug})
+                continue
+
+            # 5. 페르소나 빌드 (Stage 2)
+            emit({"type": "analyzing", "slug": slug, "step": "persona_build", "current": i, "total": total})
+            try:
+                part_b = build_persona_md(persona_analysis, display_name, model_client)
+            except Exception as e:
+                emit({"type": "error", "message": f"{slug}: 페르소나 생성 실패 — {e}", "slug": slug})
                 continue
 
             # 4. 파일 생성
