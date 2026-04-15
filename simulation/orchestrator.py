@@ -120,7 +120,7 @@ class MeetingOrchestrator:
             if response:
                 self.session.stream_message(agent.config.name, response, agent.config.slug)
                 self._add_agent(agent, response, phase=2)
-                last_slug = slug
+                last_slug = slug  # only track successful speakers; failed turns don't block re-selection
 
     def _phase3(self, topic: str) -> str:
         self.session.stream_phase("Phase 3: 최종 입장 및 합의 도출")

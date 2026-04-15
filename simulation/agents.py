@@ -177,7 +177,7 @@ class ModeratorAgent:
             [{"slug": "__moderator__", "speaker": "[사회자]", "content": instruction}],
         ).strip()
 
-        slug = self._parse_slug(response)
+        slug = self._parse_slug(response, available)
         if slug not in available:
             logger.warning(
                 "ModeratorAgent returned unknown slug %r — falling back to random", slug
@@ -198,9 +198,10 @@ class ModeratorAgent:
 
     # ── Internal ──────────────────────────────────────────────────────────────
 
-    def _parse_slug(self, text: str) -> str:
+    def _parse_slug(self, text: str, available: list[str] | None = None) -> str:
         """텍스트에서 알려진 slug 를 추출. 없으면 첫 번째 단어 반환."""
-        for slug in self.participant_slugs:
+        candidates = available if available is not None else self.participant_slugs
+        for slug in candidates:
             if slug in text:
                 return slug
         match = re.search(r"\b([a-z][a-z0-9_-]+)\b", text)

@@ -49,3 +49,13 @@ def test_select_next_speaker_fallback_when_all_excluded():
     result = mod.select_next_speaker([], exclude="leecy")
     # 선택지가 없으면 exclude 무시하고 전체에서 선택
     assert result in slugs
+
+
+def test_select_next_speaker_excludes_in_two_person_team():
+    """2인 팀에서 exclude가 작동해야 한다."""
+    slugs = ["alice", "bob"]
+    # LLM이 항상 "alice" 를 반환하도록 mock — alice가 exclude되어 있으므로 bob이 선택되어야 함
+    client = _mock_client("alice")
+    mod = ModeratorAgent(client, slugs)
+    result = mod.select_next_speaker([], exclude="alice")
+    assert result == "bob"
