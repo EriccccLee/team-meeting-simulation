@@ -315,3 +315,71 @@ def analyze_persona(
         system_prompt=_PERSONA_SYSTEM,
         messages=[{"slug": "user", "speaker": "user", "content": prompt}],
     )
+
+
+# ── 파일 쓰기 ─────────────────────────────────────────────────────────────────
+
+def _unique_slug(slug: str, team_skills_dir: Path) -> str:
+    """슬러그 디렉터리가 이미 존재하면 _2, _3, ... suffix를 붙여 반환."""
+    if not (team_skills_dir / slug).exists():
+        return slug
+    n = 2
+    while (team_skills_dir / f"{slug}_{n}").exists():
+        n += 1
+    return f"{slug}_{n}"
+
+
+def write_profile(
+    slug: str,
+    display_name: str,
+    part_a: str,
+    part_b: str,
+    team_skills_dir: Path,
+    raw_messages: list[str] | None = None,
+) -> Path:
+    """팀원 프로필 파일 세트를 team-skills/{slug}/ 에 생성.
+
+    Returns:
+        생성된 멤버 디렉터리 Path
+    """
+    unique = _unique_slug(slug, team_skills_dir)
+    member_dir = team_skills_dir / unique
+    member_dir.mkdir(parents=True, exist_ok=True)
+
+    # SKILL.md — Part A + Part B 결합
+    skill_md = (
+        f"# {display_name} — SKILL.md\n\n"
+        f"## PART A — Technical Profile\n\n{part_a}\n\n"
+        f"---\n\n"
+        f"## PART B — Persona Layers\n\n{part_b}\n"
+    )
+    (member_dir / "SKILL.md").write_text(skill_md, encoding="utf-8")
+
+    # work.md, persona.md
+    (member_dir / "work.md").write_text(part_a, encoding="utf-8")
+    (member_dir / "persona.md").write_text(part_b, encoding="utf-8")
+
+    # meta.json
+    now = datetime.now(timezone.utc).isoformat()
+    meta = {
+        "slug": unique,
+        "name": display_name,
+        "version": "v1",
+        "source": "slack",
+        "created_at": now,
+        "updated_at": now,
+        "corrections_count": 0,
+    }
+    (member_dir / "meta.json").write_text(
+        json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+
+    # slack_messages.json — 원본 메시지 보존
+    if raw_messages is not None:
+        messages_data = {"messages": raw_messages}
+        (member_dir / "slack_messages.json").write_text(
+            json.dumps(messages_data, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+
+    return member_dir

@@ -161,7 +161,7 @@ def test_discover_users_sorted_by_count_desc():
     assert result[0]["message_count"] >= result[1]["message_count"]
 
 
-from simulation.slack_collector import collect_user_messages
+from simulation.slack_collector import collect_user_messages, write_profile
 
 
 def test_collect_user_messages_filters_by_user():
@@ -221,3 +221,70 @@ def test_collect_user_messages_aggregates_multiple_channels():
         result = collect_user_messages("UA001", ["C001", "C002"], "xoxb-fake")
 
     assert len(result) == 2
+
+
+import json
+import tempfile
+from pathlib import Path
+
+
+def test_write_profile_creates_all_files():
+    """write_profile 이 5개 파일을 모두 생성한다."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        team_dir = Path(tmpdir)
+        result = write_profile(
+            slug="testuser",
+            display_name="테스트 유저",
+            part_a="### 주요 업무 역할\n데이터 분석 담당",
+            part_b="### Layer 0\n핵심 원칙",
+            team_skills_dir=team_dir,
+            raw_messages=["메시지1", "메시지2"],
+        )
+
+        assert result == team_dir / "testuser"
+        assert (result / "SKILL.md").exists()
+        assert (result / "work.md").exists()
+        assert (result / "persona.md").exists()
+        assert (result / "meta.json").exists()
+        assert (result / "slack_messages.json").exists()
+
+
+def test_write_profile_meta_json_fields():
+    """meta.json 에 필수 필드가 있다."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        team_dir = Path(tmpdir)
+        write_profile("alice", "Alice", "partA", "partB", team_dir)
+        meta = json.loads((team_dir / "alice" / "meta.json").read_text("utf-8"))
+
+        assert meta["slug"] == "alice"
+        assert meta["name"] == "Alice"
+        assert meta["version"] == "v1"
+        assert meta["corrections_count"] == 0
+        assert meta["source"] == "slack"
+        assert "created_at" in meta
+
+
+def test_write_profile_skill_md_contains_both_parts():
+    """SKILL.md 가 Part A 와 Part B 를 모두 포함한다."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        team_dir = Path(tmpdir)
+        write_profile("bob", "Bob", "PART_A_CONTENT", "PART_B_CONTENT", team_dir)
+        skill_md = (team_dir / "bob" / "SKILL.md").read_text("utf-8")
+
+        assert "PART_A_CONTENT" in skill_md
+        assert "PART_B_CONTENT" in skill_md
+        assert "PART A" in skill_md
+        assert "PART B" in skill_md
+
+
+def test_write_profile_slug_conflict_resolved():
+    """슬러그 충돌 시 _2, _3 suffix 자동 부여."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        team_dir = Path(tmpdir)
+        r1 = write_profile("alice", "Alice 1", "a", "b", team_dir)
+        r2 = write_profile("alice", "Alice 2", "a", "b", team_dir)
+        r3 = write_profile("alice", "Alice 3", "a", "b", team_dir)
+
+        assert r1 == team_dir / "alice"
+        assert r2 == team_dir / "alice_2"
+        assert r3 == team_dir / "alice_3"
