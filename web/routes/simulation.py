@@ -11,6 +11,7 @@ import asyncio
 import io
 import json
 import queue as stdlib_queue
+import re
 import shutil
 import subprocess
 import sys
@@ -34,6 +35,16 @@ from simulation.session import MeetingSession
 from simulation.cli import _load_agent_config, _load_file_contents
 
 router = APIRouter()
+
+_UUID_RE = re.compile(
+    r"[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}"
+)
+
+
+def _validate_session_id(session_id: str) -> None:
+    if not _UUID_RE.fullmatch(session_id):
+        raise HTTPException(status_code=400, detail="invalid session_id format")
+
 
 # session_id → SimpleQueue (thread-safe, no asyncio needed)
 _sessions: dict[str, stdlib_queue.SimpleQueue] = {}
@@ -357,6 +368,7 @@ async def stream_events(session_id: str) -> StreamingResponse:
     SimpleQueue 를 50 ms 폴링으로 소비합니다.
     asyncio.Queue + call_soon_threadsafe 대신 이 방식이 Windows uvicorn 에서 안정적입니다.
     """
+    _validate_session_id(session_id)
     q = _sessions.get(session_id)
     if q is None:
         raise HTTPException(status_code=404, detail="session not found")
