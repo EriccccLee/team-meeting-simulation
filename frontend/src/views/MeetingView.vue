@@ -5,7 +5,7 @@
       logo-text="MEETING"
       :participants="participants"
       :active-speaker="activeSpeaker"
-      :current-phase="currentPhase"
+      :phases="phaseSteps"
       :status-dot="statusClass"
       :status-text="statusText"
       @new-meeting="startNewMeeting"
@@ -90,6 +90,12 @@ const statusText = computed(() => {
   if (isDone.value) return '완료'
   return '시뮬레이션 진행 중'
 })
+
+const phaseSteps = computed(() => [
+  { label: 'Phase 1', state: currentPhase.value > 1 ? 'done' : currentPhase.value === 1 ? 'active' : '' },
+  { label: 'Phase 2', state: currentPhase.value > 2 ? 'done' : currentPhase.value === 2 ? 'active' : '' },
+  { label: 'Phase 3', state: currentPhase.value > 3 ? 'done' : currentPhase.value === 3 ? 'active' : '' },
+])
 
 function colorOf(slug) {
   return participants.value.find(p => p.slug === slug)?.color ?? '#999'

@@ -2,9 +2,9 @@
   <div class="meeting-page">
     <!-- 좌측 사이드바 -->
     <MeetingSidebar
-      logo-text="MEETING"
+      logo-text="HISTORY"
       :participants="sidebarParticipants"
-      :current-phase="4"
+      :phases="historyPhaseSteps"
       status-dot="done"
       :status-text="formatDate(data.timestamp)"
       @new-meeting="router.push('/')"
@@ -72,6 +72,12 @@ const sidebarParticipants = computed(() =>
     color: colorOf(slug),
   }))
 )
+
+const historyPhaseSteps = [
+  { label: 'Phase 1', state: 'done' },
+  { label: 'Phase 2', state: 'done' },
+  { label: 'Phase 3', state: 'done' },
+]
 
 function colorOf(slug) {
   return participants.value.find(p => p.slug === slug)?.color ?? '#999'

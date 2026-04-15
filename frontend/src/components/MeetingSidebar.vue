@@ -23,17 +23,17 @@
       </ul>
     </div>
 
-    <div class="sidebar-section">
+    <div class="sidebar-section" v-if="phases.length">
       <p class="sidebar-label">PROGRESS</p>
       <ul class="phase-steps">
         <li
-          v-for="n in 3"
-          :key="n"
+          v-for="(phase, i) in phases"
+          :key="i"
           class="phase-step"
-          :class="{ done: currentPhase > n, active: currentPhase === n }"
+          :class="phase.state"
         >
-          <span class="step-num">0{{ n }}</span>
-          <span class="step-label">Phase {{ n }}</span>
+          <span class="step-num">{{ String(i + 1).padStart(2, '0') }}</span>
+          <span class="step-label">{{ phase.label }}</span>
         </li>
       </ul>
     </div>
@@ -54,7 +54,7 @@ defineProps({
   logoText:     { type: String,  default: 'MEETING' },
   participants: { type: Array,   default: () => [] },
   activeSpeaker:{ type: String,  default: '' },
-  currentPhase: { type: Number,  default: 0 },
+  phases:       { type: Array,   default: () => [] },
   statusDot:    { type: String,  default: '' },
   statusText:   { type: String,  default: '' },
 })
