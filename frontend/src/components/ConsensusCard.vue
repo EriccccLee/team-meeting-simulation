@@ -14,11 +14,14 @@
 <script setup>
 import { computed } from 'vue'
 import { marked } from 'marked'
+import DOMPurify from 'dompurify'
 import PhaseHeader from './PhaseHeader.vue'
 
 const props = defineProps({ content: { type: String, required: true } })
 
-const renderedContent = computed(() => marked.parse(props.content || ''))
+const renderedContent = computed(() =>
+  DOMPurify.sanitize(marked.parse(props.content || ''))
+)
 </script>
 
 <style scoped>
