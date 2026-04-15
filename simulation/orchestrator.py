@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -85,8 +86,17 @@ class MeetingOrchestrator:
         self._add_moderator(opening)
 
         instruction = "이 안건에 대한 초기 의견을 밝혀주세요."
-        for agent in self.agents:
-            response = self._call_agent(agent, topic, self.history, instruction)
+        # 병렬 실행: 각 에이전트 호출은 독립적이므로 ThreadPoolExecutor 사용
+        # history 스냅샷 전달 → 스레드 안전 (쓰기는 메인 스레드만)
+        history_snapshot = list(self.history)
+        with ThreadPoolExecutor(max_workers=len(self.agents)) as pool:
+            futures = [
+                pool.submit(self._call_agent, agent, topic, history_snapshot, instruction, skip_delay=True)
+                for agent in self.agents
+            ]
+        # 원래 순서대로 결과 수집 (futures는 self.agents 순서와 동일)
+        for agent, fut in zip(self.agents, futures):
+            response = fut.result()
             if response:
                 self.session.stream_message(agent.config.name, response, agent.config.slug)
                 self._add_agent(agent, response, phase=1)

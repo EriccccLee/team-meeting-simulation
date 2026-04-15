@@ -108,3 +108,31 @@ def test_call_moderator_skip_delay_true_does_not_sleep():
          patch.object(orch.moderator, "announce_opening", return_value="opening"):
         orch._call_moderator("announce_opening", topic="t", history=[], skip_delay=True)
     mock_sleep.assert_not_called()
+
+
+def test_phase1_calls_all_agents_in_order():
+    """Phase 1에서 모든 에이전트가 호출되고 결과가 올바른 순서로 스트리밍된다."""
+    config_a = AgentConfig(name="Alice", slug="alice", skill_md="# a", persona_md="# p")
+    config_b = AgentConfig(name="Bob", slug="bob", skill_md="# b", persona_md="# p")
+    agent_a = MeetingAgent(config_a, MagicMock())
+    agent_b = MeetingAgent(config_b, MagicMock())
+    mod_config = MagicMock()
+    moderator = ModeratorAgent(MagicMock(), participant_slugs=["alice", "bob"])
+    session = MagicMock()
+    orch = MeetingOrchestrator(
+        agents=[agent_a, agent_b],
+        moderator=moderator,
+        session=session,
+        config=OrchestratorConfig(call_delay=0, phase2_rounds=0),
+    )
+    with patch.object(moderator, "announce_opening", return_value="opening"), \
+         patch.object(agent_a, "respond", return_value="alice says"), \
+         patch.object(agent_b, "respond", return_value="bob says"), \
+         patch("time.sleep"):
+        orch._phase1("topic")
+
+    # stream_message: alice → bob 순서 보장
+    calls = [c.args for c in session.stream_message.call_args_list]
+    assert len(calls) == 2
+    assert calls[0][2] == "alice"
+    assert calls[1][2] == "bob"
