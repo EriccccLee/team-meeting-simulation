@@ -219,3 +219,99 @@ def collect_user_messages(
             )
 
     return messages
+
+
+# ── LLM 분석 프롬프트 (colleague-skill 기반) ──────────────────────────────────
+
+_WORK_SYSTEM = "당신은 팀원 분석 전문가입니다. Slack 메시지를 기반으로 업무 프로필을 작성합니다."
+
+WORK_ANALYSIS_PROMPT = """\
+다음은 한 팀원이 Slack에서 보낸 메시지 목록입니다.
+이 메시지들을 분석해 해당 팀원의 업무 역량 프로필(Part A)을 **한국어**로 작성하세요.
+
+## 출력 형식
+
+다음 항목을 포함하는 마크다운 문서를 작성하세요:
+
+### 주요 업무 역할
+이 팀원이 실제로 담당하는 업무 영역을 구체적으로 서술하세요.
+
+### 기술 스택
+언급되거나 사용되는 언어, 도구, 프레임워크, 플랫폼을 나열하세요.
+
+### 업무 처리 스타일
+문제 접근 방식, 작업 선호도, 실행 패턴을 서술하세요.
+
+### 업무 커뮤니케이션 패턴
+업무 관련 소통 방식, 보고 스타일, 협업 패턴을 서술하세요.
+
+## 주의사항
+- 메시지에서 명확히 드러나는 내용만 작성하세요
+- 추측이나 과장 없이 사실에 기반하세요
+- 마크다운 코드블록 래퍼(```markdown) 없이 바로 마크다운 내용만 출력하세요
+"""
+
+_PERSONA_SYSTEM = "당신은 팀원 분석 전문가입니다. Slack 메시지를 기반으로 페르소나를 작성합니다."
+
+PERSONA_ANALYSIS_PROMPT = """\
+다음은 한 팀원이 Slack에서 보낸 메시지 목록입니다.
+이 메시지들을 분석해 해당 팀원의 페르소나 프로필(Part B)을 **한국어**로 작성하세요.
+
+## 출력 형식
+
+다음 5개 레이어 구조로 마크다운 문서를 작성하세요:
+
+### Layer 0: 절대 행동 원칙
+이 사람의 non-negotiable한 성격적 특성. 어떤 상황에서도 변하지 않는 핵심 행동 패턴.
+
+### Layer 1: 핵심 정체성
+이 사람이 스스로를 어떻게 인식하는지, 무엇을 중요하게 여기는지.
+
+### Layer 2: 표현 스타일
+말투, 글쓰기 특성, 자주 쓰는 표현, 어투. 가능하면 실제 메시지 패턴을 인용하세요.
+
+### Layer 3: 의사결정 및 문제해결 패턴
+어떻게 문제에 접근하고, 결정을 내리고, 의견을 표현하는지.
+
+### Layer 4: 대인관계 패턴
+다른 사람들과 어떻게 상호작용하는지, 협업 스타일, 갈등 처리 방식.
+
+### 실행 규칙
+이 페르소나로 시뮬레이션할 때 지켜야 할 규칙 목록 (3~5개 불릿).
+
+## 주의사항
+- 메시지에서 명확히 드러나는 패턴만 작성하세요
+- 마크다운 코드블록 래퍼(```markdown) 없이 바로 마크다운 내용만 출력하세요
+"""
+
+_MAX_MESSAGES_FOR_ANALYSIS = 100  # LLM에 전달할 최대 메시지 수
+
+
+# ── LLM 분석 ──────────────────────────────────────────────────────────────────
+
+def analyze_work(
+    messages: list[str],
+    model_client,  # ClaudeCodeModelClient — 순환 임포트 방지로 타입 힌트 생략
+) -> str:
+    """수집된 메시지로 Part A (업무 프로필) 마크다운 생성."""
+    sample = messages[:_MAX_MESSAGES_FOR_ANALYSIS]
+    msg_block = "\n---\n".join(sample)
+    prompt = WORK_ANALYSIS_PROMPT + f"\n\n## Slack 메시지 목록\n\n{msg_block}"
+    return model_client.call(
+        system_prompt=_WORK_SYSTEM,
+        messages=[{"slug": "user", "speaker": "user", "content": prompt}],
+    )
+
+
+def analyze_persona(
+    messages: list[str],
+    model_client,
+) -> str:
+    """수집된 메시지로 Part B (페르소나) 마크다운 생성."""
+    sample = messages[:_MAX_MESSAGES_FOR_ANALYSIS]
+    msg_block = "\n---\n".join(sample)
+    prompt = PERSONA_ANALYSIS_PROMPT + f"\n\n## Slack 메시지 목록\n\n{msg_block}"
+    return model_client.call(
+        system_prompt=_PERSONA_SYSTEM,
+        messages=[{"slug": "user", "speaker": "user", "content": prompt}],
+    )
