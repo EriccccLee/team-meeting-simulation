@@ -88,6 +88,8 @@ class MeetingOrchestrator:
         instruction = "이 안건에 대한 초기 의견을 밝혀주세요."
         # 병렬 실행: 각 에이전트 호출은 독립적이므로 ThreadPoolExecutor 사용
         # history 스냅샷 전달 → 스레드 안전 (쓰기는 메인 스레드만)
+        if not self.agents:
+            return
         history_snapshot = list(self.history)
         with ThreadPoolExecutor(max_workers=len(self.agents)) as pool:
             futures = [
