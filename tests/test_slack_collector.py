@@ -368,7 +368,45 @@ def test_rate_limited_client_paginate_collects_all():
 
 # ── discover_channels_for_user ────────────────────────────────────────────────
 
-from simulation.slack_collector import discover_channels_for_user
+from simulation.slack_collector import discover_channels_for_user, _format_messages_for_llm
+
+
+def test_collect_user_messages_returns_dicts(tmp_path):
+    """collect_user_messages가 list[dict]를 반환한다."""
+    resp_data = {
+        "messages": [
+            {"type": "message", "user": "UA001", "text": "안녕하세요 반갑습니다", "ts": "1234.5678", "reply_count": 0},
+        ],
+        "response_metadata": {},
+    }
+    mock_client = MagicMock()
+    mock_client.call.return_value = resp_data
+
+    with patch("simulation.slack_collector.RateLimitedSlackClient", return_value=mock_client), \
+         patch("simulation.slack_collector.discover_channels_for_user", return_value=["C001"]):
+        from simulation.slack_collector import collect_user_messages
+        result = collect_user_messages("UA001", "xoxb-test", channels=["C001"])
+
+    assert isinstance(result, list)
+    assert len(result) == 1
+    assert isinstance(result[0], dict)
+    assert result[0]["content"] == "안녕하세요 반갑습니다"
+    assert result[0]["channel"] == "C001"
+    assert result[0]["ts"] == "1234.5678"
+    assert result[0]["is_thread_starter"] is False
+
+
+def test_format_messages_for_llm_sections():
+    """_format_messages_for_llm이 thread_starter / long / short 섹션을 생성한다."""
+    messages = [
+        {"content": "짧은", "ts": "1", "channel": "C001", "is_thread_starter": False},
+        {"content": "이것은 매우 긴 메시지입니다 50자 이상이 되어야 합니다 충분히 길어야 하므로 더 작성합니다", "ts": "2", "channel": "C001", "is_thread_starter": False},
+        {"content": "스레드 시작 메시지입니다 중요도가 높습니다", "ts": "3", "channel": "C001", "is_thread_starter": True},
+    ]
+    result = _format_messages_for_llm(messages, max_messages=100)
+    assert "토론 시작 메시지" in result
+    assert "장문 메시지" in result
+    assert "단문 메시지" in result
 
 
 def test_discover_channels_for_user_filters_by_member():

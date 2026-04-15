@@ -295,16 +295,18 @@ def collect_user_messages(
     token: str,
     channels: list[str] | None = None,
     max_collect: int = _DEFAULT_MAX_COLLECT,
-) -> list[str]:
-    """지정 user_id가 보낸 메시지 중 노이즈를 제거한 텍스트 목록 반환.
+) -> list[dict]:
+    """지정 user_id가 보낸 메시지 중 노이즈를 제거한 메시지 딕셔너리 목록 반환.
 
-    channels=None이면 discover_channels_for_user()로 자동 탐색한다.
+    Returns:
+        [{"content": str, "ts": str, "channel": str, "is_thread_starter": bool}, ...]
+    channels=None이면 discover_channels_for_user()로 자동 탐색.
     """
     if channels is None:
         channels = discover_channels_for_user(user_id, token)
 
     client = RateLimitedSlackClient(token)
-    messages: list[str] = []
+    messages: list[dict] = []
 
     for channel_id in channels:
         try:
@@ -321,7 +323,12 @@ def collect_user_messages(
                     ):
                         text = msg.get("text", "").strip()
                         if text and not _is_noise(text):
-                            messages.append(text)
+                            messages.append({
+                                "content": text,
+                                "ts": msg.get("ts", ""),
+                                "channel": channel_id,
+                                "is_thread_starter": bool(msg.get("reply_count", 0)),
+                            })
                 next_cursor = (resp.get("response_metadata") or {}).get("next_cursor") or ""
                 if next_cursor and len(messages) < max_collect:
                     cursor = next_cursor
@@ -405,14 +412,45 @@ PERSONA_ANALYSIS_PROMPT = """\
 
 # ── LLM 분석 ──────────────────────────────────────────────────────────────────
 
+def _format_messages_for_llm(
+    messages: list[dict],
+    max_messages: int = _DEFAULT_MAX_MESSAGES,
+) -> str:
+    """메시지를 중요도 기준으로 분류해 LLM 입력 형식으로 포맷팅.
+
+    thread_starter(40%) → long >50자(40%) → short(20%) 비율 적용.
+    """
+    thread_msgs = [m for m in messages if m.get("is_thread_starter")]
+    long_msgs   = [m for m in messages if not m.get("is_thread_starter") and len(m["content"]) > 50]
+    short_msgs  = [m for m in messages if not m.get("is_thread_starter") and len(m["content"]) <= 50]
+
+    t_n = min(len(thread_msgs), max_messages * 4 // 10)
+    l_n = min(len(long_msgs),   max_messages * 4 // 10)
+    s_n = min(len(short_msgs),  max_messages * 2 // 10)
+
+    def fmt(m: dict) -> str:
+        return f"[{m.get('ts', '')}][{m.get('channel', '')}] {m['content']}"
+
+    lines = [
+        "## 토론 시작 메시지 (관점·결정·기술 공유 — 분석 우선)",
+        *[fmt(m) for m in thread_msgs[:t_n]],
+        "",
+        "## 장문 메시지 (논의·방안 — 업무 역량 파악용)",
+        *[fmt(m) for m in long_msgs[:l_n]],
+        "",
+        "## 단문 메시지 (말투·스타일 참고용)",
+        *[fmt(m) for m in short_msgs[:s_n]],
+    ]
+    return "\n".join(lines)
+
+
 def analyze_work(
-    messages: list[str],
+    messages: list[dict],
     model_client,  # ClaudeCodeModelClient — 순환 임포트 방지로 타입 힌트 생략
     max_messages: int = _DEFAULT_MAX_MESSAGES,
 ) -> str:
-    """수집된 메시지로 Part A (업무 프로필) 마크다운 생성."""
-    sample = messages[:max_messages]
-    msg_block = "\n---\n".join(sample)
+    """수집된 메시지 딕셔너리로 Part A (업무 프로필) 마크다운 생성."""
+    msg_block = _format_messages_for_llm(messages, max_messages)
     prompt = WORK_ANALYSIS_PROMPT + f"\n\n## Slack 메시지 목록\n\n{msg_block}"
     return model_client.call(
         system_prompt=_WORK_SYSTEM,
@@ -421,13 +459,12 @@ def analyze_work(
 
 
 def analyze_persona(
-    messages: list[str],
+    messages: list[dict],
     model_client,
     max_messages: int = _DEFAULT_MAX_MESSAGES,
 ) -> str:
-    """수집된 메시지로 Part B (페르소나) 마크다운 생성."""
-    sample = messages[:max_messages]
-    msg_block = "\n---\n".join(sample)
+    """수집된 메시지 딕셔너리로 Part B (페르소나) 마크다운 생성."""
+    msg_block = _format_messages_for_llm(messages, max_messages)
     prompt = PERSONA_ANALYSIS_PROMPT + f"\n\n## Slack 메시지 목록\n\n{msg_block}"
     return model_client.call(
         system_prompt=_PERSONA_SYSTEM,
@@ -453,7 +490,7 @@ def write_profile(
     part_a: str,
     part_b: str,
     team_skills_dir: Path,
-    raw_messages: list[str] | None = None,
+    raw_messages: list[dict] | None = None,
 ) -> Path:
     """팀원 프로필 파일 세트를 team-skills/{slug}/ 에 생성.
 
