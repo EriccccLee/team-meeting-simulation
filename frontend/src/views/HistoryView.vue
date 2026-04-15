@@ -67,6 +67,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { formatDate } from '../utils/format.js'
 import ChatBubble from '../components/ChatBubble.vue'
 import PhaseHeader from '../components/PhaseHeader.vue'
 import ConsensusCard from '../components/ConsensusCard.vue'
@@ -96,12 +97,6 @@ function colorOf(slug) {
 function nameOf(slug) {
   return participants.value.find(p => p.slug === slug)?.name ?? slug
 }
-function formatDate(iso) {
-  if (!iso) return ''
-  const d = new Date(iso)
-  return `${d.getFullYear()}.${String(d.getMonth()+1).padStart(2,'0')}.${String(d.getDate()).padStart(2,'0')} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`
-}
-
 onMounted(async () => {
   try {
     const [histRes, partRes] = await Promise.all([

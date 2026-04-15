@@ -110,6 +110,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
+import { formatDate } from '../utils/format.js'
 
 const router = useRouter()
 const historyList = ref([])
@@ -147,11 +148,6 @@ onMounted(async () => {
     historyList.value = await res.json()
   } catch (_) {}
 })
-
-function formatDate(iso) {
-  const d = new Date(iso)
-  return `${d.getFullYear()}.${String(d.getMonth()+1).padStart(2,'0')}.${String(d.getDate()).padStart(2,'0')} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`
-}
 
 async function deleteHistory(sessionId) {
   await fetch(`/api/history/${sessionId}`, { method: 'DELETE' })
