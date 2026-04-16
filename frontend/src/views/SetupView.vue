@@ -177,7 +177,7 @@ const isDragging = ref(false)
 const fileInput = ref<HTMLInputElement | null>(null)
 const emptyRedirectMsg = ref('')
 const historyError = ref(false)
-const attachedSessionIds = ref<Set<string>>(new Set())
+const attachedSessionIds = ref<Map<string, string>>(new Map()) // sessionId → filename
 
 const canStart = computed(() => topic.value.trim() && selectedSlugs.value.length > 0)
 
@@ -258,7 +258,15 @@ function onFileChange(e: Event): void {
   input.value = ''
 }
 function removeFile(i: number): void {
+  const removed = files.value[i]
   files.value.splice(i, 1)
+  // 히스토리 참조 파일이면 attachedSessionIds에서 제거해 재첨부 허용
+  for (const [sid, fname] of attachedSessionIds.value) {
+    if (fname === removed.name) {
+      attachedSessionIds.value.delete(sid)
+      break
+    }
+  }
 }
 
 async function attachHistoryRef(sessionId: string, topicText: string): Promise<void> {
@@ -268,10 +276,12 @@ async function attachHistoryRef(sessionId: string, topicText: string): Promise<v
     if (!res.ok) throw new Error()
     const md = await res.text()
     const truncated = topicText.replace(/\r?\n/g, ' ').slice(0, 20)
-    const filename = `[이전회의] ${truncated}.md`
+    const filename = `[이전회의] ${truncated} (${sessionId.slice(0, 8)}).md`
+    // 동일 파일명 중복 방지
+    if (files.value.some(f => f.name === filename)) return
     const file = new File([md], filename, { type: 'text/markdown' })
     files.value.push(file)
-    attachedSessionIds.value.add(sessionId)
+    attachedSessionIds.value.set(sessionId, filename)
   } catch (_) {
     error.value = '회의 자료를 불러오지 못했습니다.'
   }
