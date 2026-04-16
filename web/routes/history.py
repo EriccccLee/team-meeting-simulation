@@ -10,11 +10,82 @@ import re
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import PlainTextResponse
 
 router = APIRouter()
 
 _ROOT = Path(__file__).parent.parent.parent
 HISTORY_DIR = _ROOT / "outputs" / "history"
+
+_TEAM_SKILLS_DIR = _ROOT / "team-skills"
+
+
+def _resolve_name(slug: str) -> str:
+    """team-skills/{slug}/meta.json 에서 display name 조회, 없으면 slug 반환."""
+    meta_path = _TEAM_SKILLS_DIR / slug / "meta.json"
+    if not meta_path.exists():
+        return slug
+    try:
+        meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        raw = meta.get("name", slug)
+        return raw.split("[")[0].strip()
+    except Exception:
+        return slug
+
+
+def _feed_to_markdown(data: dict) -> str:
+    """히스토리 JSON 데이터를 구조화된 마크다운 문자열로 변환."""
+    topic = data.get("topic", "")
+    participants = data.get("participants", [])
+    timestamp = data.get("timestamp", "")
+    feed = data.get("feed", [])
+
+    names = {s: _resolve_name(s) for s in participants}
+    participant_str = ", ".join(names.get(s, s) for s in participants)
+
+    lines: list[str] = [
+        "# 이전 회의 기록",
+        "",
+        f"- **안건:** {topic}",
+        f"- **참여자:** {participant_str}",
+        f"- **일시:** {timestamp}",
+        "",
+        "---",
+        "",
+    ]
+
+    # 마지막 moderator 메시지 인덱스 찾기 (합의안)
+    last_mod_idx = -1
+    for i in range(len(feed) - 1, -1, -1):
+        if feed[i].get("type") == "moderator":
+            last_mod_idx = i
+            break
+
+    for i, event in enumerate(feed):
+        t = event.get("type")
+        if t == "phase":
+            lines.append(f"## {event.get('label', '')}")
+            lines.append("")
+        elif t == "moderator":
+            content = event.get("content", "")
+            if i == last_mod_idx:
+                lines.append("## 최종 합의안")
+                lines.append("")
+                lines.append(content)
+                lines.append("")
+            else:
+                lines.append(f"> *사회자: {content}*")
+                lines.append("")
+        elif t == "message":
+            speaker = event.get("speaker", "")
+            slug = event.get("slug", "")
+            content = event.get("content", "")
+            lines.append(f"**{speaker} ({slug}):**")
+            lines.append(content)
+            lines.append("")
+
+    return "\n".join(lines)
+
 
 _UUID_RE = re.compile(
     r"[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}"
@@ -65,6 +136,21 @@ def get_history(session_id: str) -> dict:
         return json.loads(path.read_text(encoding="utf-8"))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/history/{session_id}/markdown")
+def get_history_markdown(session_id: str) -> PlainTextResponse:
+    """특정 회의를 마크다운 텍스트로 반환 (후속 회의 참조용)."""
+    _validate_session_id(session_id)
+    path = HISTORY_DIR / f"{session_id}.json"
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="history not found")
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    md = _feed_to_markdown(data)
+    return PlainTextResponse(md, media_type="text/plain; charset=utf-8")
 
 
 @router.delete("/history/{session_id}")
