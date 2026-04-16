@@ -60,11 +60,29 @@
               <li v-for="p in store.participants" :key="p.slug" class="participant-item">
                 <label class="participant-label">
                   <input type="checkbox" :value="p.slug" v-model="selectedSlugs" />
-                  <span class="p-avatar" :style="{ background: p.color }">
-                    {{ p.name.slice(0, 2) }}
+                  <span class="avatar-wrap">
+                    <span class="p-avatar" :style="{ background: p.color }">
+                      {{ p.name.slice(0, 2) }}
+                    </span>
+                    <span v-if="p.persona_summary?.length" class="avatar-tooltip">
+                      <span v-for="(line, i) in p.persona_summary" :key="i" class="tooltip-line">{{ line }}</span>
+                    </span>
                   </span>
                   <span class="p-name">{{ p.name }}</span>
                   <span class="tag">{{ p.slug }}</span>
+                  <select
+                    class="role-select"
+                    :value="p.role"
+                    @change="onRoleChange(p, ($event.target as HTMLSelectElement).value)"
+                    @click.stop
+                  >
+                    <option value="general">—</option>
+                    <option value="backend">Backend</option>
+                    <option value="frontend">Frontend</option>
+                    <option value="ml">AI/ML</option>
+                    <option value="pm">PM</option>
+                    <option value="data">Data</option>
+                  </select>
                 </label>
               </li>
             </ul>
@@ -259,6 +277,17 @@ async function attachHistoryRef(sessionId: string, topicText: string): Promise<v
   }
 }
 
+async function onRoleChange(p: { slug: string; role: string }, newRole: string): Promise<void> {
+  const res = await fetch(`/api/participants/${p.slug}/role`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ role: newRole }),
+  })
+  if (res.ok) {
+    p.role = newRole
+  }
+}
+
 async function startSimulation(): Promise<void> {
   if (!canStart.value) return
   isSubmitting.value = true
@@ -417,6 +446,55 @@ async function startSimulation(): Promise<void> {
   color: #fff; flex-shrink: 0;
 }
 .p-name { font-size: 14px; font-weight: 500; flex: 1; }
+
+/* 아바타 툴팁 */
+.avatar-wrap {
+  position: relative;
+  display: inline-flex;
+  flex-shrink: 0;
+}
+.avatar-wrap:hover .avatar-tooltip {
+  display: flex;
+}
+.avatar-tooltip {
+  display: none;
+  flex-direction: column;
+  gap: 4px;
+  position: absolute;
+  left: 34px;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 100;
+  background: #fff;
+  border: 1px solid var(--gray-200);
+  border-radius: 6px;
+  padding: 10px 14px;
+  min-width: 220px;
+  max-width: 340px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.10);
+  pointer-events: none;
+}
+.tooltip-line {
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--gray-800);
+  white-space: normal;
+  display: block;
+}
+
+/* 역할 드롭다운 */
+.role-select {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  padding: 2px 5px;
+  border: 1px solid var(--gray-200);
+  border-radius: 3px;
+  background: var(--gray-50);
+  color: var(--gray-600);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.role-select:focus { outline: none; border-color: var(--orange); }
 
 /* 라운드 입력 */
 .field-inline { display: flex; align-items: center; gap: 16px; }

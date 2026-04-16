@@ -632,6 +632,7 @@ def write_profile(
     part_a: str,
     part_b: str,
     team_skills_dir: Path,
+    role: str = "general",
     raw_messages: list[dict] | None = None,
 ) -> Path:
     """팀원 프로필 파일 세트를 team-skills/{slug}/ 에 생성 또는 덮어씀.
@@ -665,6 +666,8 @@ def write_profile(
     meta = {
         "slug": unique,
         "name": display_name,
+        "role": role,
+        "persona_summary": [],
         "version": "v1",
         "source": "slack",
         "message_count": len(raw_messages) if raw_messages else 0,
@@ -826,13 +829,17 @@ def _process_one_member(
     # 4. 파일 생성
     emit({"type": "writing", "slug": slug, "current": idx, "total": total})
     try:
-        member_dir = write_profile(slug, display_name, part_a, part_b, team_skills_dir, raw_messages=messages)
+        member_dir = write_profile(
+            slug, display_name, part_a, part_b, team_skills_dir,
+            role=role, raw_messages=messages,
+        )
     except Exception as e:
         emit({"type": "error", "message": f"{slug}: 파일 저장 실패 — {e}", "slug": slug})
         return
 
-    emit({"type": "member_done", "slug": slug, "current": idx, "total": total})
-    return slug, display_name, part_b
+    actual_slug = member_dir.name
+    emit({"type": "member_done", "slug": actual_slug, "current": idx, "total": total})
+    return actual_slug, display_name, part_b
 
 
 def _run_extraction(
@@ -926,6 +933,19 @@ def _run_extraction(
                     persona_summaries[slug] = summary
                 except Exception as e:
                     logger.error("요약 future 처리 오류: %s", e)
+
+        # persona_summary를 각 멤버의 meta.json에 저장 (SetupView 로드용)
+        for actual_slug, summary in persona_summaries.items():
+            meta_path = team_skills_dir / actual_slug / "meta.json"
+            if meta_path.exists():
+                try:
+                    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+                    meta["persona_summary"] = summary
+                    meta_path.write_text(
+                        json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8"
+                    )
+                except Exception as e:
+                    logger.warning("persona_summary 저장 실패 (slug=%s): %s", actual_slug, e)
 
         emit({"type": "done", "persona_summaries": persona_summaries})
 

@@ -5,6 +5,8 @@ export interface Participant {
   slug: string
   name: string
   color: string
+  role: string
+  persona_summary: string[]
 }
 
 export const useMeetingStore = defineStore('meeting', () => {

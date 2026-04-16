@@ -1,16 +1,20 @@
 """
-GET /api/participants — 팀원 목록 반환
+GET  /api/participants           — 팀원 목록 반환
+PATCH /api/participants/{slug}/role — 역할 수정
 """
 from __future__ import annotations
 
 import hashlib
 import json
+import re
 from pathlib import Path
 
-from fastapi import APIRouter
-from pydantic import BaseModel
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel, field_validator
 
 router = APIRouter()
+
+_SLUG_RE = re.compile(r"^[a-z0-9_]+$")
 
 TEAM_SKILLS_DIR = Path(__file__).parent.parent.parent / "team-skills"
 
@@ -30,6 +34,18 @@ class Participant(BaseModel):
     slug: str
     name: str
     color: str
+    role: str = "general"
+    persona_summary: list[str] = []
+
+
+class RoleUpdate(BaseModel):
+    role: str
+
+    @field_validator("role")
+    @classmethod
+    def role_must_be_valid(cls, v: str) -> str:
+        valid = {"backend", "frontend", "ml", "pm", "data", "general"}
+        return v if v in valid else "general"
 
 
 @router.get("/participants", response_model=list[Participant])
@@ -52,5 +68,30 @@ def get_participants() -> list[Participant]:
         raw_name = meta.get("name", slug)
         name = raw_name.split("[")[0].strip()
         color = _color_for_slug(slug)
-        result.append(Participant(slug=slug, name=name, color=color))
+        role = meta.get("role", "general")
+        persona_summary = meta.get("persona_summary", [])
+        result.append(Participant(
+            slug=slug, name=name, color=color,
+            role=role, persona_summary=persona_summary,
+        ))
     return result
+
+
+@router.patch("/participants/{slug}/role")
+def update_participant_role(slug: str, body: RoleUpdate) -> dict:
+    """팀원의 역할을 수정하고 meta.json에 저장합니다."""
+    if not _SLUG_RE.fullmatch(slug):
+        raise HTTPException(status_code=400, detail="invalid slug")
+    member_dir = TEAM_SKILLS_DIR / slug
+    if not member_dir.is_dir():
+        raise HTTPException(status_code=404, detail="참여자를 찾을 수 없습니다.")
+    meta_path = member_dir / "meta.json"
+    if not meta_path.exists():
+        raise HTTPException(status_code=404, detail="meta.json이 없습니다.")
+    try:
+        meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        meta["role"] = body.role
+        meta_path.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    return {"slug": slug, "role": body.role}
