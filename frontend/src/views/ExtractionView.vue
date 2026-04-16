@@ -131,6 +131,9 @@
           >
             <span class="step-icon">{{ s.done ? '✓' : s.active ? '⟳' : '○' }}</span>
             <span class="step-text">{{ s.label }}</span>
+            <span v-if="s.active && s.startedAt" class="step-elapsed">
+              {{ Math.floor((now - s.startedAt) / 1000) }}s
+            </span>
           </div>
           <div v-if="m.errored" class="member-error">{{ m.errorMsg }}</div>
         </div>
@@ -146,7 +149,7 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 
 const router = useRouter()
@@ -172,6 +175,12 @@ const maxCollect = ref(2000)
 const maxMessages = ref(300)
 
 const canExtract = computed(() => selectedIds.value.length > 0)
+
+// ── 경과 시간 타이머 ─────────────────────────────────────────────────────────
+const now = ref(Date.now())
+let _timerHandle = null
+onMounted(() => { _timerHandle = setInterval(() => { now.value = Date.now() }, 1000) })
+onUnmounted(() => { clearInterval(_timerHandle) })
 
 // ── Step 1: 탐색 ──────────────────────────────────────────────────────────────
 async function doDiscover() {
@@ -231,12 +240,12 @@ async function doExtract() {
     errored: false,
     errorMsg: '',
     steps: [
-      { key: 'collecting',      label: '메시지 수집',      done: false, active: false },
-      { key: 'work_extract',    label: '업무 패턴 추출',   done: false, active: false },
-      { key: 'work_build',      label: '업무 프로필 생성', done: false, active: false },
-      { key: 'persona_extract', label: '페르소나 추출',    done: false, active: false },
-      { key: 'persona_build',   label: '페르소나 생성',    done: false, active: false },
-      { key: 'writing',         label: '파일 생성',        done: false, active: false },
+      { key: 'collecting',      label: '메시지 수집',      done: false, active: false, startedAt: null },
+      { key: 'work_extract',    label: '업무 패턴 추출',   done: false, active: false, startedAt: null },
+      { key: 'work_build',      label: '업무 프로필 생성', done: false, active: false, startedAt: null },
+      { key: 'persona_extract', label: '페르소나 추출',    done: false, active: false, startedAt: null },
+      { key: 'persona_build',   label: '페르소나 생성',    done: false, active: false, startedAt: null },
+      { key: 'writing',         label: '파일 생성',        done: false, active: false, startedAt: null },
     ],
   }))
 
@@ -326,12 +335,12 @@ function sanitizeSlug(c) {
 
 function activateStep(member, key) {
   const s = member.steps.find(s => s.key === key)
-  if (s) { s.active = true; s.done = false }
+  if (s) { s.active = true; s.done = false; s.startedAt = Date.now() }
 }
 
 function completeStep(member, key) {
   const s = member.steps.find(s => s.key === key)
-  if (s) { s.done = true; s.active = false }
+  if (s) { s.done = true; s.active = false; s.startedAt = null }
 }
 </script>
 
@@ -526,6 +535,12 @@ function completeStep(member, key) {
 .step-row.step-done { color: #16A34A; }
 .step-row.step-active { color: var(--black); font-weight: 500; }
 .step-icon { font-family: var(--font-mono); width: 16px; }
+.step-elapsed {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--gray-400);
+}
 
 .member-error {
   margin-top: 8px;
