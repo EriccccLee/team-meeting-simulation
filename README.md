@@ -303,3 +303,14 @@ team-meeting-simulation/
 | `.md`, `.txt` | 텍스트 직접 읽기 |
 
 변환된 내용은 각 팀원의 system prompt에 주입되어 회의 컨텍스트로 활용됩니다.
+
+
+## Star History
+
+<a href="https://www.star-history.com/?repos=EriccccLee%2Fteam-meeting-simulation&type=date&legend=top-left">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=EriccccLee/team-meeting-simulation&type=date&theme=dark&legend=top-left" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=EriccccLee/team-meeting-simulation&type=date&legend=top-left" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=EriccccLee/team-meeting-simulation&type=date&legend=top-left" />
+ </picture>
+</a>
