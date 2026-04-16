@@ -819,25 +819,48 @@ def _run_extraction(
 
     try:
         max_workers = min(total, 3)
+        # future → (member, idx) 맵 — 실패 멤버 재시도 추적용
+        future_to_member: dict = {}
         with ThreadPoolExecutor(max_workers=max_workers) as member_pool:
-            futures = [
-                member_pool.submit(
+            for idx, member in enumerate(members, start=1):
+                fut = member_pool.submit(
                     _process_one_member,
                     member, token, channels, model_client,
                     team_skills_dir, max_collect, max_messages,
                     emit, idx, total,
                 )
-                for idx, member in enumerate(members, start=1)
-            ]
-        # 성공한 멤버의 (slug, display_name, part_b) 수집
+                future_to_member[fut] = (member, idx)
+
+        # 성공한 멤버의 (slug, display_name, part_b) 수집 + 실패 멤버 추적
         summaries_input: list[tuple[str, str, str]] = []
-        for f in futures:
+        failed_members: list[tuple[dict, int]] = []
+        for f, (member, idx) in future_to_member.items():
             try:
                 result = f.result()
                 if result is not None:
                     summaries_input.append(result)
+                else:
+                    failed_members.append((member, idx))
             except Exception as e:
                 logger.error("멤버 처리 중 예외: %s", e)
+                failed_members.append((member, idx))
+
+        # 실패 멤버 순차 재시도 — timeout을 420s로 상향 (동시 부하 없음)
+        if failed_members:
+            retry_client = ClaudeCodeModelClient(timeout=420)
+            logger.info("실패 멤버 %d명 재시도 시작", len(failed_members))
+            for member, idx in failed_members:
+                emit({"type": "retry_member", "slug": member["slug"]})
+                try:
+                    result = _process_one_member(
+                        member, token, channels, retry_client,
+                        team_skills_dir, max_collect, max_messages,
+                        emit, idx, total,
+                    )
+                    if result is not None:
+                        summaries_input.append(result)
+                except Exception as e:
+                    logger.error("재시도 중 예외 (slug=%s): %s", member["slug"], e)
 
         # LLM 페르소나 요약 병렬 생성
         persona_summaries: dict[str, list[str]] = {}

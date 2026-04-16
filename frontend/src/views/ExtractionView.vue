@@ -358,6 +358,15 @@ function subscribeSSE(sessionId: string): void {
       isDone.value = true
       setTimeout(() => router.push('/'), 3000)
 
+    } else if (data.type === 'retry_member') {
+      // 실패 후 재시도 — 해당 멤버 UI 상태 초기화
+      if (member) {
+        member.errored = false
+        member.errorMsg = ''
+        member.done = false
+        member.steps.forEach(s => { s.done = false; s.active = false; s.startedAt = null })
+      }
+
     } else if (data.type === 'error' && data.slug) {
       const em = members.value.find(m => m.slug === data.slug)
       if (em) {
