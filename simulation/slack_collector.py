@@ -678,6 +678,28 @@ def write_profile(
 
 # ── 추출 오케스트레이터 ───────────────────────────────────────────────────────
 
+_PERSONA_SUMMARY_SYSTEM = "당신은 팀원 소개 전문가입니다."
+
+_PERSONA_SUMMARY_PROMPT = """\
+다음은 팀원 {name}의 페르소나 프로필입니다.
+이 사람의 핵심 특징을 **한국어 3줄**로 요약하세요.
+각 줄은 완성된 문장으로, 처음 만나는 동료에게 소개하듯이 써주세요.
+번호나 불릿 없이 줄바꿈으로 구분된 3줄만 출력하세요.
+
+{persona_md}"""
+
+
+def summarize_persona(persona_md: str, display_name: str, model_client) -> list[str]:
+    """페르소나 마크다운을 LLM으로 3줄 요약."""
+    prompt = _PERSONA_SUMMARY_PROMPT.format(name=display_name, persona_md=persona_md)
+    result = model_client.call(
+        system_prompt=_PERSONA_SUMMARY_SYSTEM,
+        messages=[{"slug": "user", "speaker": "user", "content": prompt}],
+    )
+    lines = [l.strip() for l in result.splitlines() if l.strip()]
+    return lines[:3]
+
+
 def _process_one_member(
     member: dict,
     token: str,
@@ -753,19 +775,8 @@ def _process_one_member(
         emit({"type": "error", "message": f"{slug}: 파일 저장 실패 — {e}", "slug": slug})
         return
 
-    persona_summary: list[str] = []
-    try:
-        persona_text = (member_dir / "persona.md").read_text(encoding="utf-8")
-        for line in persona_text.splitlines():
-            stripped = line.strip()
-            if stripped and not stripped.startswith("#"):
-                persona_summary.append(stripped)
-            if len(persona_summary) >= 3:
-                break
-    except Exception as e:
-        logger.warning("persona_summary 추출 실패 (slug=%s): %s", slug, e)
-
-    emit({"type": "member_done", "slug": slug, "persona_summary": persona_summary, "current": idx, "total": total})
+    emit({"type": "member_done", "slug": slug, "current": idx, "total": total})
+    return slug, display_name, part_b
 
 
 def _run_extraction(
@@ -803,14 +814,37 @@ def _run_extraction(
                 )
                 for idx, member in enumerate(members, start=1)
             ]
-        # 예외 전파 — 각 멤버 스레드의 미처리 예외를 로그로 남김
+        # 성공한 멤버의 (slug, display_name, part_b) 수집
+        summaries_input: list[tuple[str, str, str]] = []
         for f in futures:
             try:
-                f.result()
+                result = f.result()
+                if result is not None:
+                    summaries_input.append(result)
             except Exception as e:
                 logger.error("멤버 처리 중 예외: %s", e)
 
-        emit({"type": "done"})
+        # LLM 페르소나 요약 병렬 생성
+        persona_summaries: dict[str, list[str]] = {}
+        if summaries_input:
+            def _summarize(slug: str, display_name: str, part_b: str) -> tuple[str, list[str]]:
+                try:
+                    return slug, summarize_persona(part_b, display_name, model_client)
+                except Exception as e:
+                    logger.warning("페르소나 요약 실패 (slug=%s): %s", slug, e)
+                    return slug, []
+
+            max_sum_workers = min(len(summaries_input), 3)
+            with ThreadPoolExecutor(max_workers=max_sum_workers) as summary_pool:
+                sum_futures = [summary_pool.submit(_summarize, *s) for s in summaries_input]
+            for sf in sum_futures:
+                try:
+                    slug, summary = sf.result()
+                    persona_summaries[slug] = summary
+                except Exception as e:
+                    logger.error("요약 future 처리 오류: %s", e)
+
+        emit({"type": "done", "persona_summaries": persona_summaries})
 
     except Exception as e:
         emit({"type": "error", "message": str(e)})

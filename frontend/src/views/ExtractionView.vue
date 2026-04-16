@@ -310,11 +310,14 @@ function subscribeSSE(sessionId) {
       if (member) {
         completeStep(member, 'writing')
         member.done = true
-        if (data.persona_summary && data.persona_summary.length) {
-          member.persona_summary = data.persona_summary
-        }
       }
     } else if (data.type === 'done') {
+      if (data.persona_summaries) {
+        members.value.forEach(m => {
+          const summary = data.persona_summaries[m.slug]
+          if (summary && summary.length) m.persona_summary = summary
+        })
+      }
       isDone.value = true
       setTimeout(() => router.push('/'), 3000)
 
