@@ -128,18 +128,19 @@
             <span class="member-idx">[{{ m.index }}/{{ members.length }}]</span>
           </div>
           <div v-if="m.steps.some(s => s.done || s.active) || m.done || m.errored" class="member-steps">
-            <div
-              v-for="s in m.steps"
-              :key="s.key"
-              class="step-row"
-              :class="{ 'step-done': s.done, 'step-active': s.active }"
-            >
-              <span class="step-icon">{{ s.done ? '✓' : s.active ? '⟳' : '○' }}</span>
-              <span class="step-text">{{ s.label }}</span>
-              <span v-if="s.active && s.startedAt" class="step-elapsed">
-                {{ Math.floor((now - s.startedAt) / 1000) }}s
-              </span>
-            </div>
+            <template v-for="s in m.steps" :key="s.key">
+              <div v-if="s.group" class="step-group-label">{{ s.group }}</div>
+              <div
+                class="step-row"
+                :class="{ 'step-done': s.done, 'step-active': s.active, 'step-indented': s.indented }"
+              >
+                <span class="step-icon">{{ s.done ? '✓' : s.active ? '⟳' : '○' }}</span>
+                <span class="step-text">{{ s.label }}</span>
+                <span v-if="s.active && s.startedAt" class="step-elapsed">
+                  {{ Math.floor((now - s.startedAt) / 1000) }}s
+                </span>
+              </div>
+            </template>
             <div v-if="m.errored" class="member-error">{{ m.errorMsg }}</div>
           </div>
           <div v-if="m.done && m.persona_summary.length" class="persona-summary">
@@ -182,6 +183,8 @@ interface MemberStep {
   done: boolean
   active: boolean
   startedAt: number | null
+  group?: string    // 이 스텝이 새 그룹의 시작이면 그룹 레이블
+  indented?: boolean // 그룹 내 들여쓰기 스텝
 }
 
 interface Member {
@@ -310,12 +313,12 @@ async function doExtract(): Promise<void> {
     errorMsg: '',
     persona_summary: [] as string[],
     steps: [
-      { key: 'collecting',      label: '메시지 수집',      done: false, active: false, startedAt: null },
-      { key: 'work_extract',    label: '업무 패턴 추출',   done: false, active: false, startedAt: null },
-      { key: 'work_build',      label: '업무 프로필 생성', done: false, active: false, startedAt: null },
-      { key: 'persona_extract', label: '페르소나 추출',    done: false, active: false, startedAt: null },
-      { key: 'persona_build',   label: '페르소나 생성',    done: false, active: false, startedAt: null },
-      { key: 'writing',         label: '파일 생성',        done: false, active: false, startedAt: null },
+      { key: 'collecting',      label: '메시지 수집',   done: false, active: false, startedAt: null },
+      { key: 'work_extract',    label: '업무 패턴',     done: false, active: false, startedAt: null, group: '분석', indented: true },
+      { key: 'persona_extract', label: '페르소나 패턴', done: false, active: false, startedAt: null, indented: true },
+      { key: 'work_build',      label: '업무 프로필',   done: false, active: false, startedAt: null, group: '프로필 작성', indented: true },
+      { key: 'persona_build',   label: '페르소나 프로필', done: false, active: false, startedAt: null, indented: true },
+      { key: 'writing',         label: '파일 생성',     done: false, active: false, startedAt: null },
     ],
   }))
 
@@ -654,17 +657,27 @@ function completeStep(member: Member, key: string): void {
 .member-idx { font-family: var(--font-mono); font-size: 11px; color: var(--gray-400); }
 
 .member-steps { padding: 10px 16px 12px; }
+.step-group-label {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--gray-400);
+  padding: 6px 0 2px;
+}
 .step-row {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 4px 0;
+  padding: 3px 0;
   color: var(--gray-400);
-  font-size: 13px;
+  font-size: 12px;
 }
+.step-row.step-indented { padding-left: 10px; }
 .step-row.step-done { color: #16A34A; }
 .step-row.step-active { color: var(--black); font-weight: 500; }
-.step-icon { font-family: var(--font-mono); width: 16px; }
+.step-icon { font-family: var(--font-mono); width: 14px; flex-shrink: 0; }
 .step-elapsed {
   margin-left: auto;
   font-family: var(--font-mono);
