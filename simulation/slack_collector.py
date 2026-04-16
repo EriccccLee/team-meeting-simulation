@@ -807,7 +807,7 @@ def _run_extraction(
     """
     from simulation.model_client import ClaudeCodeModelClient
 
-    model_client = ClaudeCodeModelClient(timeout=180)
+    model_client = ClaudeCodeModelClient(timeout=300)
     total = len(members)
 
     def emit(event: dict) -> None:
