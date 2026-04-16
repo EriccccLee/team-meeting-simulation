@@ -319,6 +319,15 @@ def collect_user_messages(
     messages: list[dict] = []
     seen_contents: set[str] = set()
 
+    # Resolve channel names for LLM context
+    channel_names: dict[str, str] = {}
+    for ch_id in channels:
+        try:
+            info = client.call("conversations_info", channel=ch_id)
+            channel_names[ch_id] = info.get("channel", {}).get("name", ch_id)
+        except SlackApiError:
+            channel_names[ch_id] = ch_id
+
     for channel_id in channels:
         try:
             cursor = None
@@ -340,13 +349,38 @@ def collect_user_messages(
                                     "content": text,
                                     "ts": msg.get("ts", ""),
                                     "channel": channel_id,
+                                    "channel_name": channel_names.get(channel_id, channel_id),
                                     "is_thread_starter": bool(msg.get("reply_count", 0)),
+                                    "is_thread_reply": False,
                                 })
                 next_cursor = (resp.get("response_metadata") or {}).get("next_cursor") or ""
                 if next_cursor and len(messages) < max_collect:
                     cursor = next_cursor
                 else:
                     break
+            # 스레드 답장 수집 — 유저가 시작한 스레드에서 본인의 후속 답장 수집
+            thread_starters = [m for m in messages if m.get("is_thread_starter") and m.get("channel") == channel_id]
+            for ts_msg in thread_starters[:20]:  # 채널당 최대 20개 스레드
+                if len(messages) >= max_collect:
+                    break
+                try:
+                    replies = client.call("conversations_replies", channel=channel_id, ts=ts_msg["ts"], limit=200)
+                    for reply in replies.get("messages", [])[1:]:  # [0]은 부모 메시지 (이미 수집됨)
+                        if reply.get("user") == user_id and not reply.get("bot_id"):
+                            text = reply.get("text", "").strip()
+                            if text and not _is_noise(text) and text not in seen_contents:
+                                seen_contents.add(text)
+                                messages.append({
+                                    "content": text,
+                                    "ts": reply.get("ts", ""),
+                                    "channel": channel_id,
+                                    "channel_name": channel_names.get(channel_id, channel_id),
+                                    "is_thread_starter": False,
+                                    "is_thread_reply": True,
+                                })
+                except SlackApiError:
+                    continue  # 개별 스레드 실패는 무시
+
         except SlackApiError as e:
             logger.warning(
                 "채널 %s 메시지 수집 실패 (user=%s, 스킵): %s",
@@ -355,6 +389,7 @@ def collect_user_messages(
         if len(messages) >= max_collect:
             break
 
+    messages.sort(key=lambda m: float(m.get("ts", "0")))
     return messages
 
 
@@ -394,7 +429,8 @@ def _format_messages_for_llm(
     l_n = min(len(long_msgs), max_messages - t_n - s_n)
 
     def fmt(m: dict) -> str:
-        return f"[{m.get('ts', '')}][{m.get('channel', '')}] {m['content']}"
+        ch = m.get('channel_name', m.get('channel', ''))
+        return f"[#{ch}] {m['content']}"
 
     lines = [
         "## 토론 시작 메시지 (관점·결정·기술 공유 — 분석 우선)",
