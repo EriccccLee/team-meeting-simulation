@@ -529,11 +529,29 @@ _PERSONA_BUILD_PROMPT = """\
 """
 
 
+def _validate_llm_output(output: str, min_length: int = 50, context: str = "") -> str:
+    """LLM 출력의 최소 품질을 검증. 부족하면 RuntimeError 발생."""
+    if not output or not output.strip():
+        raise RuntimeError(f"LLM 출력이 비어있습니다. ({context})")
+    stripped = output.strip()
+    if len(stripped) < min_length:
+        raise RuntimeError(
+            f"LLM 출력이 너무 짧습니다 ({len(stripped)}자 < {min_length}자). ({context})"
+        )
+    # 거부/오류 응답 감지
+    refusal_markers = ["cannot analyze", "분석할 수 없", "충분하지 않", "Unable to"]
+    for marker in refusal_markers:
+        if marker.lower() in stripped.lower()[:200]:
+            raise RuntimeError(f"LLM이 분석을 거부했습니다: {stripped[:100]}... ({context})")
+    return stripped
+
+
 def extract_work_patterns(
     messages: list[dict],
     model_client,
     max_messages: int = _DEFAULT_MAX_MESSAGES,
     role: str = "general",
+    impression: str = "",
 ) -> str:
     """Stage 1: 메시지에서 업무 패턴을 구조화 데이터로 추출.
 
@@ -541,20 +559,23 @@ def extract_work_patterns(
     """
     msg_block = _format_messages_for_llm(messages, max_messages)
     role_prompt = ROLE_SPECIFIC_PROMPTS.get(role, "")
-    prompt = _WORK_EXTRACT_PROMPT + role_prompt + f"\n\n## 메시지\n\n{msg_block}"
-    return model_client.call(
+    impression_ctx = f"\n\n[팀원 인상 메모: {impression}]\n" if impression.strip() else ""
+    prompt = _WORK_EXTRACT_PROMPT + role_prompt + impression_ctx + f"\n\n## 메시지\n\n{msg_block}"
+    result = model_client.call(
         system_prompt=_WORK_SYSTEM,
         messages=[{"slug": "user", "speaker": "user", "content": prompt}],
     )
+    return _validate_llm_output(result, min_length=100, context="work pattern extraction")
 
 
 def build_work_md(analysis: str, display_name: str, model_client) -> str:
     """Stage 2: 업무 패턴 분석 결과를 work.md 포맷으로 변환."""
     prompt = _WORK_BUILD_PROMPT.format(name=display_name, analysis=analysis)
-    return model_client.call(
+    result = model_client.call(
         system_prompt=_WORK_SYSTEM,
         messages=[{"slug": "user", "speaker": "user", "content": prompt}],
     )
+    return _validate_llm_output(result, min_length=100, context="work profile build")
 
 
 def extract_persona_patterns(
@@ -562,24 +583,28 @@ def extract_persona_patterns(
     model_client,
     max_messages: int = _DEFAULT_MAX_MESSAGES,
     impression: str = "",
+    role: str = "general",
 ) -> str:
     """Stage 1: 메시지에서 페르소나 패턴을 구조화 데이터로 추출."""
     msg_block = _format_messages_for_llm(messages, max_messages)
+    role_ctx = f"\n\n[추론된 직무: {role}]\n" if role != "general" else ""
     impression_ctx = f"\n\n[팀원 인상 메모: {impression}]\n" if impression.strip() else ""
-    prompt = _PERSONA_EXTRACT_PROMPT + impression_ctx + f"\n\n## 메시지\n\n{msg_block}"
-    return model_client.call(
+    prompt = _PERSONA_EXTRACT_PROMPT + role_ctx + impression_ctx + f"\n\n## 메시지\n\n{msg_block}"
+    result = model_client.call(
         system_prompt=_PERSONA_SYSTEM,
         messages=[{"slug": "user", "speaker": "user", "content": prompt}],
     )
+    return _validate_llm_output(result, min_length=100, context="persona pattern extraction")
 
 
 def build_persona_md(analysis: str, display_name: str, model_client) -> str:
     """Stage 2: 페르소나 패턴 분석 결과를 persona.md 포맷으로 변환."""
     prompt = _PERSONA_BUILD_PROMPT.format(name=display_name, analysis=analysis)
-    return model_client.call(
+    result = model_client.call(
         system_prompt=_PERSONA_SYSTEM,
         messages=[{"slug": "user", "speaker": "user", "content": prompt}],
     )
+    return _validate_llm_output(result, min_length=100, context="persona profile build")
 
 
 # ── 파일 쓰기 ─────────────────────────────────────────────────────────────────
@@ -782,10 +807,10 @@ def _process_one_member(
     try:
         with ThreadPoolExecutor(max_workers=2) as stage1_pool:
             work_fut = stage1_pool.submit(
-                extract_work_patterns, messages, model_client, max_messages, role
+                extract_work_patterns, messages, model_client, max_messages, role, impression
             )
             persona_fut = stage1_pool.submit(
-                extract_persona_patterns, messages, model_client, max_messages, impression
+                extract_persona_patterns, messages, model_client, max_messages, impression, role
             )
         work_analysis = work_fut.result()
         persona_analysis = persona_fut.result()
