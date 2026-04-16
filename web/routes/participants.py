@@ -35,6 +35,8 @@ class Participant(BaseModel):
 @router.get("/participants", response_model=list[Participant])
 def get_participants() -> list[Participant]:
     """team-skills/ 디렉터리를 스캔해 팀원 목록을 반환합니다."""
+    if not TEAM_SKILLS_DIR.exists():
+        return []
     result = []
     for member_dir in sorted(TEAM_SKILLS_DIR.iterdir()):
         if not member_dir.is_dir():
