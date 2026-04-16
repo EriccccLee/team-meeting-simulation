@@ -193,6 +193,11 @@ def discover_users(
                         uid = msg["user"]
                         user_counts[uid] = user_counts.get(uid, 0) + 1
 
+                    # 스레드 참여자 카운트 (reply_users 필드 활용, 추가 API 호출 없음)
+                    for ruid in msg.get("reply_users", []):
+                        if ruid != msg.get("user"):  # 스레드 시작자는 이미 위에서 카운트
+                            user_counts[ruid] = user_counts.get(ruid, 0) + 1
+
                 next_cursor = (
                     resp.get("response_metadata", {}).get("next_cursor") or ""
                 )
