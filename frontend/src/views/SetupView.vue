@@ -70,19 +70,15 @@
                   </span>
                   <span class="p-name">{{ p.name }}</span>
                   <span class="tag">{{ p.slug }}</span>
-                  <select
-                    class="role-select"
+                  <input
+                    type="text"
+                    class="role-input"
                     :value="p.role"
-                    @change="onRoleChange(p, ($event.target as HTMLSelectElement).value)"
+                    placeholder="직무"
+                    @blur="onRoleChange(p, ($event.target as HTMLInputElement).value)"
+                    @keydown.enter="($event.target as HTMLInputElement).blur()"
                     @click.stop
-                  >
-                    <option value="general">—</option>
-                    <option value="backend">Backend</option>
-                    <option value="frontend">Frontend</option>
-                    <option value="ml">AI/ML</option>
-                    <option value="pm">PM</option>
-                    <option value="data">Data</option>
-                  </select>
+                  />
                 </label>
               </li>
             </ul>
@@ -288,13 +284,15 @@ async function attachHistoryRef(sessionId: string, topicText: string): Promise<v
 }
 
 async function onRoleChange(p: { slug: string; role: string }, newRole: string): Promise<void> {
+  const trimmed = newRole.trim()
+  if (trimmed === p.role) return  // 변경 없으면 스킵
   const res = await fetch(`/api/participants/${p.slug}/role`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ role: newRole }),
+    body: JSON.stringify({ role: trimmed }),
   })
   if (res.ok) {
-    p.role = newRole
+    p.role = trimmed
   }
 }
 
@@ -492,8 +490,8 @@ async function startSimulation(): Promise<void> {
   display: block;
 }
 
-/* 역할 드롭다운 */
-.role-select {
+/* 역할 텍스트 입력 */
+.role-input {
   font-family: var(--font-mono);
   font-size: 10px;
   padding: 2px 5px;
@@ -501,10 +499,11 @@ async function startSimulation(): Promise<void> {
   border-radius: 3px;
   background: var(--gray-50);
   color: var(--gray-600);
-  cursor: pointer;
   flex-shrink: 0;
+  width: 120px;
 }
-.role-select:focus { outline: none; border-color: var(--orange); }
+.role-input:focus { outline: none; border-color: var(--orange); }
+.role-input::placeholder { color: var(--gray-400); }
 
 /* 라운드 입력 */
 .field-inline { display: flex; align-items: center; gap: 16px; }

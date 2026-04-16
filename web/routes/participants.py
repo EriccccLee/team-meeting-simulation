@@ -10,7 +10,7 @@ import re
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel
 
 router = APIRouter()
 
@@ -40,12 +40,6 @@ class Participant(BaseModel):
 
 class RoleUpdate(BaseModel):
     role: str
-
-    @field_validator("role")
-    @classmethod
-    def role_must_be_valid(cls, v: str) -> str:
-        valid = {"backend", "frontend", "ml", "pm", "data", "general"}
-        return v if v in valid else "general"
 
 
 @router.get("/participants", response_model=list[Participant])

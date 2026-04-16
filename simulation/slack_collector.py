@@ -481,41 +481,6 @@ _WORK_EXTRACT_PROMPT = """\
 각 항목에 실제 메시지를 인용해 근거를 제시하세요.
 """
 
-ROLE_SPECIFIC_PROMPTS: dict[str, str] = {
-    "backend": """\
-[백엔드 추가 분석]
-- 명명 규범: 함수·변수·API 네이밍 패턴
-- 인터페이스 설계 선호도: REST vs GraphQL, 동기 vs 비동기
-- DB 조작 방식: ORM 선호 여부, 쿼리 최적화 접근
-- Code Review 스타일: 어떤 점을 주로 지적하는가
-""",
-    "frontend": """\
-[프론트엔드 추가 분석]
-- 컴포넌트 설계 패턴: 재사용성 vs 특화, 상태 관리 방식
-- 번들 최적화 관심도: 성능 지표 언급 빈도
-- 접근성·UX 감수성: 사용자 경험 관련 발언
-""",
-    "ml": """\
-[AI/ML 추가 분석]
-- 실험 설계 방식: 가설 설정, 지표 정의, 재현성 관리
-- 모델 배포 관심도: MLOps, 모니터링, A/B 테스트
-- 데이터 품질에 대한 태도: 데이터 검증, 전처리 선호
-""",
-    "pm": """\
-[PM 추가 분석]
-- PRD 구조화 방식: 문제 정의 vs 솔루션 우선
-- 우선순위 산정 방법: 데이터 기반 vs 직관, 스테이크홀더 조율
-- 데이터 활용도: 지표 언급, 분석 요청 빈도
-""",
-    "data": """\
-[데이터 분석 추가 분석]
-- SQL 스타일: 복잡 쿼리 선호, 서브쿼리 vs CTE
-- 분석 프레임워크: 가설 검증 방식, 통계적 사고
-- 시각화 선호: 도구 선택(Tableau, plotly 등), 청중 의식
-""",
-    "general": "",
-}
-
 _WORK_BUILD_PROMPT = """\
 다음은 한 팀원의 Slack 메시지 분석 결과입니다. 이를 바탕으로 '{name}'의 업무 역량 프로필(Part A)을 **한국어 마크다운**으로 작성하세요.
 
@@ -571,17 +536,14 @@ def extract_work_patterns(
     messages: list[dict],
     model_client,
     max_messages: int = _DEFAULT_MAX_MESSAGES,
-    role: str = "general",
+    role: str = "",
     impression: str = "",
 ) -> str:
-    """Stage 1: 메시지에서 업무 패턴을 구조화 데이터로 추출.
-
-    role: "backend", "frontend", "ml", "pm", "data", "general" 중 하나.
-    """
+    """Stage 1: 메시지에서 업무 패턴을 구조화 데이터로 추출."""
     msg_block = _format_messages_for_llm(messages, max_messages)
-    role_prompt = ROLE_SPECIFIC_PROMPTS.get(role, "")
+    role_ctx = f"\n\n[이 팀원의 직무: {role}]\n" if role else ""
     impression_ctx = f"\n\n[팀원 인상 메모: {impression}]\n" if impression.strip() else ""
-    prompt = _WORK_EXTRACT_PROMPT + role_prompt + impression_ctx + f"\n\n## 메시지\n\n{msg_block}"
+    prompt = _WORK_EXTRACT_PROMPT + role_ctx + impression_ctx + f"\n\n## 메시지\n\n{msg_block}"
     result = model_client.call(
         system_prompt=_WORK_SYSTEM,
         messages=[{"slug": "user", "speaker": "user", "content": prompt}],
@@ -604,11 +566,11 @@ def extract_persona_patterns(
     model_client,
     max_messages: int = _DEFAULT_MAX_MESSAGES,
     impression: str = "",
-    role: str = "general",
+    role: str = "",
 ) -> str:
     """Stage 1: 메시지에서 페르소나 패턴을 구조화 데이터로 추출."""
     msg_block = _format_messages_for_llm(messages, max_messages)
-    role_ctx = f"\n\n[추론된 직무: {role}]\n" if role != "general" else ""
+    role_ctx = f"\n\n[추론된 직무: {role}]\n" if role else ""
     impression_ctx = f"\n\n[팀원 인상 메모: {impression}]\n" if impression.strip() else ""
     prompt = _PERSONA_EXTRACT_PROMPT + role_ctx + impression_ctx + f"\n\n## 메시지\n\n{msg_block}"
     result = model_client.call(
@@ -653,7 +615,7 @@ def write_profile(
     part_a: str,
     part_b: str,
     team_skills_dir: Path,
-    role: str = "general",
+    role: str = "",
     raw_messages: list[dict] | None = None,
     claimed_slugs: set[str] | None = None,
 ) -> Path:
@@ -724,28 +686,17 @@ def write_profile(
 _ROLE_INFER_SYSTEM = "당신은 Slack 메시지를 보고 팀원의 직무 역할을 판단하는 전문가입니다."
 
 _ROLE_INFER_PROMPT = """\
-아래는 팀원의 Slack 메시지 샘플입니다. 이 사람의 주요 직무를 다음 중 **하나의 영문 키워드**로만 답하세요:
+아래는 팀원의 Slack 메시지 샘플입니다. 이 사람의 주요 직무 역할을 **한국어 한 줄**로 답하세요.
 
-backend, frontend, ml, pm, data, general
+예시: "풀스택 AI 엔지니어", "백엔드 인프라 엔지니어", "데이터 분석가", "프로덕트 매니저", "AI/ML 파이프라인 엔지니어"
 
-판단 기준:
-- backend: 서버 API, DB, 인프라, Docker, 배포 관련 발언
-- frontend: UI, 컴포넌트, 웹, React/Vue 관련 발언
-- ml: 모델, 학습, 임베딩, 파이프라인, AI/ML 관련 발언
-- pm: 기획, 스펙, 로드맵, 우선순위 관련 발언
-- data: SQL, 분석, 지표, 대시보드 관련 발언
-- general: 위 카테고리에 해당하지 않거나 불명확한 경우
-
-단어 하나만 출력하세요.
+직무 설명만 출력하세요. 번호, 불릿, 설명 없이 역할 이름만.
 
 ## 메시지 샘플
 {messages}"""
 
-_ROLE_INFER_VALID = {"backend", "frontend", "ml", "pm", "data", "general"}
-
-
 def infer_role(messages: list[dict], model_client, sample_size: int = 40) -> str:
-    """메시지 샘플로 직무 역할을 자동 추론. 실패 시 'general' 반환."""
+    """메시지 샘플로 직무 역할을 자유 형식 텍스트로 추론. 실패 시 빈 문자열 반환."""
     sample = messages[:sample_size]
     msg_block = _format_messages_for_llm(sample, max_messages=sample_size)
     prompt = _ROLE_INFER_PROMPT.format(messages=msg_block)
@@ -754,11 +705,12 @@ def infer_role(messages: list[dict], model_client, sample_size: int = 40) -> str
             system_prompt=_ROLE_INFER_SYSTEM,
             messages=[{"slug": "user", "speaker": "user", "content": prompt}],
         )
-        role = result.strip().lower().split()[0] if result.strip() else "general"
-        return role if role in _ROLE_INFER_VALID else "general"
+        # 따옴표, 마침표 등 정리
+        role = result.strip().strip('"\'').strip('.').strip()
+        return role if role else ""
     except Exception as e:
-        logger.warning("역할 추론 실패 — 'general' 사용: %s", e)
-        return "general"
+        logger.warning("역할 추론 실패: %s", e)
+        return ""
 
 
 # ── 추출 오케스트레이터 ───────────────────────────────────────────────────────
