@@ -151,41 +151,70 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
+
+interface Candidate {
+  user_id: string
+  display_name: string
+  message_count: number
+  suggested_slug: string
+  editedSlug: string
+  role: string
+  impression: string
+}
+
+interface MemberStep {
+  key: string
+  label: string
+  done: boolean
+  active: boolean
+  startedAt: number | null
+}
+
+interface Member {
+  slug: string
+  display_name: string
+  index: number
+  done: boolean
+  errored: boolean
+  errorMsg: string
+  persona_summary: string[]
+  steps: MemberStep[]
+}
 
 const router = useRouter()
 
 // ── 상태 ──────────────────────────────────────────────────────────────────────
-const step = ref(1)
-const candidates = ref([])
-const selectedIds = ref([])
+const step = ref<1 | 2 | 3>(1)
+const candidates = ref<Candidate[]>([])
+const selectedIds = ref<string[]>([])
 
-const members = ref([])
-const isDone = ref(false)
+const members = ref<Member[]>([])
+const isDone = ref<boolean>(false)
 const doneCount = computed(() => members.value.filter(m => m.done).length)
 
-const isDiscovering = ref(false)
-const isExtracting = ref(false)
-const discoverError = ref('')
-const extractError = ref('')
-const globalError = ref('')
+const isDiscovering = ref<boolean>(false)
+const isExtracting = ref<boolean>(false)
+const discoverError = ref<string>('')
+const extractError = ref<string>('')
+const globalError = ref<string>('')
 
 // 추출 설정 (프론트에서 조정 가능)
-const maxCollect = ref(2000)
-const maxMessages = ref(300)
+const maxCollect = ref<number>(2000)
+const maxMessages = ref<number>(300)
 
 const canExtract = computed(() => selectedIds.value.length > 0)
 
 // ── 경과 시간 타이머 ─────────────────────────────────────────────────────────
-const now = ref(Date.now())
-let timerHandle = null
+const now = ref<number>(Date.now())
+let timerHandle: ReturnType<typeof setInterval> | null = null
 onMounted(() => { timerHandle = setInterval(() => { now.value = Date.now() }, 1000) })
-onUnmounted(() => { clearInterval(timerHandle) })
+onUnmounted(() => { if (timerHandle) clearInterval(timerHandle) })
 
 // ── Step 1: 탐색 ──────────────────────────────────────────────────────────────
-async function doDiscover() {
+async function doDiscover(): Promise<void> {
   isDiscovering.value = true
   discoverError.value = ''
 
@@ -195,7 +224,7 @@ async function doDiscover() {
       const body = await res.json().catch(() => ({}))
       throw new Error(body.detail || `서버 오류 (${res.status})`)
     }
-    const raw = await res.json()
+    const raw: Array<{ user_id: string; display_name: string; message_count: number; suggested_slug: string }> = await res.json()
     candidates.value = raw.map(c => ({
       ...c,
       editedSlug: c.suggested_slug,
@@ -212,14 +241,14 @@ async function doDiscover() {
     selectedIds.value = candidates.value.map(c => c.user_id)
     step.value = 2
   } catch (e) {
-    discoverError.value = e.message
+    discoverError.value = (e as Error).message
   } finally {
     isDiscovering.value = false
   }
 }
 
 // ── Step 2: 추출 시작 ─────────────────────────────────────────────────────────
-async function doExtract() {
+async function doExtract(): Promise<void> {
   isExtracting.value = true
   extractError.value = ''
 
@@ -241,7 +270,7 @@ async function doExtract() {
     done: false,
     errored: false,
     errorMsg: '',
-    persona_summary: [],
+    persona_summary: [] as string[],
     steps: [
       { key: 'collecting',      label: '메시지 수집',      done: false, active: false, startedAt: null },
       { key: 'work_extract',    label: '업무 패턴 추출',   done: false, active: false, startedAt: null },
@@ -270,17 +299,17 @@ async function doExtract() {
     step.value = 3
     subscribeSSE(session_id)
   } catch (e) {
-    extractError.value = e.message
+    extractError.value = (e as Error).message
     isExtracting.value = false
   }
 }
 
 // ── Step 3: SSE 구독 ──────────────────────────────────────────────────────────
-function subscribeSSE(sessionId) {
+function subscribeSSE(sessionId: string): void {
   const es = new EventSource(`/api/slack/stream/${sessionId}`)
 
-  es.onmessage = (event) => {
-    const data = JSON.parse(event.data)
+  es.onmessage = (event: MessageEvent) => {
+    const data = JSON.parse(event.data) as Record<string, unknown>
 
     if (data.type === 'end') {
       es.close()
@@ -294,14 +323,21 @@ function subscribeSSE(sessionId) {
 
     } else if (data.type === 'analyzing') {
       if (member) {
-        const stepOrder = ['collecting', 'work_extract', 'work_build', 'persona_extract', 'persona_build', 'writing']
-        const currentIdx = stepOrder.indexOf(data.step)
-        if (currentIdx > 0) completeStep(member, stepOrder[currentIdx - 1])
-        activateStep(member, data.step)
+        // Stage 1 (work_extract + persona_extract) runs in parallel — both complete 'collecting'
+        // Stage 2 (work_build + persona_build) runs in parallel — both complete Stage 1 steps
+        if (data.step === 'work_extract' || data.step === 'persona_extract') {
+          completeStep(member, 'collecting')
+        } else if (data.step === 'work_build' || data.step === 'persona_build') {
+          completeStep(member, 'work_extract')
+          completeStep(member, 'persona_extract')
+        }
+        activateStep(member, data.step as string)
       }
 
     } else if (data.type === 'writing') {
       if (member) {
+        // Both Stage 2 steps finish before writing starts
+        completeStep(member, 'work_build')
         completeStep(member, 'persona_build')
         activateStep(member, 'writing')
       }
@@ -313,8 +349,9 @@ function subscribeSSE(sessionId) {
       }
     } else if (data.type === 'done') {
       if (data.persona_summaries) {
+        const summaries = data.persona_summaries as Record<string, string[]>
         members.value.forEach(m => {
-          const summary = data.persona_summaries[m.slug]
+          const summary = summaries[m.slug]
           if (summary && summary.length) m.persona_summary = summary
         })
       }
@@ -322,30 +359,30 @@ function subscribeSSE(sessionId) {
       setTimeout(() => router.push('/'), 3000)
 
     } else if (data.type === 'error' && data.slug) {
-      const m = members.value.find(m => m.slug === data.slug)
-      if (m) {
-        m.errored = true
-        m.errorMsg = data.message
+      const em = members.value.find(m => m.slug === data.slug)
+      if (em) {
+        em.errored = true
+        em.errorMsg = data.message as string
       }
     } else if (data.type === 'error') {
-      globalError.value = data.message
+      globalError.value = data.message as string
     }
   }
 
   es.onerror = () => es.close()
 }
 
-function sanitizeSlug(c) {
+function sanitizeSlug(c: Candidate): void {
   c.editedSlug = c.editedSlug.toLowerCase().replace(/[^a-z0-9_]/g, '')
 }
 
-function activateStep(member, key) {
-  const s = member.steps.find(s => s.key === key)
+function activateStep(member: Member, key: string): void {
+  const s = member.steps.find(st => st.key === key)
   if (s) { s.active = true; s.done = false; s.startedAt = Date.now() }
 }
 
-function completeStep(member, key) {
-  const s = member.steps.find(s => s.key === key)
+function completeStep(member: Member, key: string): void {
+  const s = member.steps.find(st => st.key === key)
   if (s) { s.done = true; s.active = false; s.startedAt = null }
 }
 </script>
