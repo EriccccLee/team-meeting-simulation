@@ -24,6 +24,7 @@ import os
 import queue as stdlib_queue
 import re
 import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -282,15 +283,21 @@ def discover_channels_for_user(
             break
 
     channels = channels[:channel_limit]
-    result = []
-    for ch in channels:
+
+    def _check(ch: dict) -> str | None:
         try:
-            members = client.paginate("conversations_members", "members", channel=ch["id"], limit=200)
-            if user_id in members:
-                result.append(ch["id"])
+            members = client.paginate(
+                "conversations_members", "members",
+                channel=ch["id"], limit=200,
+            )
+            return ch["id"] if user_id in members else None
         except SlackApiError:
-            continue
-    return result
+            return None
+
+    max_workers = min(len(channels), 5) if channels else 1
+    with ThreadPoolExecutor(max_workers=max_workers) as pool:
+        futures = [pool.submit(_check, ch) for ch in channels]
+    return [ch_id for f in futures if (ch_id := f.result()) is not None]
 
 
 # ── Slack API: 메시지 수집 ────────────────────────────────────────────────────
