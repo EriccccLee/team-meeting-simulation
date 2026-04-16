@@ -23,6 +23,7 @@ import logging
 import os
 import queue as stdlib_queue
 import re
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
@@ -604,6 +605,9 @@ def build_persona_md(analysis: str, display_name: str, model_client) -> str:
 
 # ── 파일 쓰기 ─────────────────────────────────────────────────────────────────
 
+_slug_lock = threading.Lock()
+
+
 def _unique_slug(slug: str, team_skills_dir: Path) -> str:
     """슬러그 디렉터리가 이미 존재하면 _2, _3, ... suffix를 붙여 반환."""
     if not (team_skills_dir / slug).exists():
@@ -627,9 +631,10 @@ def write_profile(
     Returns:
         생성된 멤버 디렉터리 Path
     """
-    unique = _unique_slug(slug, team_skills_dir)
-    member_dir = team_skills_dir / unique
-    member_dir.mkdir(parents=True, exist_ok=True)
+    with _slug_lock:
+        unique = _unique_slug(slug, team_skills_dir)
+        member_dir = team_skills_dir / unique
+        member_dir.mkdir(parents=True, exist_ok=True)
 
     # SKILL.md — Part A + Part B 결합
     skill_md = (
@@ -708,6 +713,7 @@ def _process_one_member(
 
     # 2. Stage 1 병렬: work_extract + persona_extract 동시 실행
     emit({"type": "analyzing", "slug": slug, "step": "work_extract", "current": idx, "total": total})
+    emit({"type": "analyzing", "slug": slug, "step": "persona_extract", "current": idx, "total": total})
     try:
         with ThreadPoolExecutor(max_workers=2) as stage1_pool:
             work_fut = stage1_pool.submit(
@@ -723,9 +729,8 @@ def _process_one_member(
         return
 
     # 3. Stage 2 병렬: work_build + persona_build 동시 실행
-    # work_extract/persona_extract 완료 표시 후 work_build/persona_build 시작
-    emit({"type": "analyzing", "slug": slug, "step": "persona_extract", "current": idx, "total": total})
     emit({"type": "analyzing", "slug": slug, "step": "work_build", "current": idx, "total": total})
+    emit({"type": "analyzing", "slug": slug, "step": "persona_build", "current": idx, "total": total})
     try:
         with ThreadPoolExecutor(max_workers=2) as stage2_pool:
             build_work_fut = stage2_pool.submit(
@@ -741,7 +746,6 @@ def _process_one_member(
         return
 
     # 4. 파일 생성
-    emit({"type": "analyzing", "slug": slug, "step": "persona_build", "current": idx, "total": total})
     emit({"type": "writing", "slug": slug, "current": idx, "total": total})
     try:
         write_profile(slug, display_name, part_a, part_b, team_skills_dir, raw_messages=messages)
