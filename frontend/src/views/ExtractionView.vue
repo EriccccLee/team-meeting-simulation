@@ -137,6 +137,9 @@
           </div>
           <div v-if="m.errored" class="member-error">{{ m.errorMsg }}</div>
         </div>
+        <div v-if="m.done && m.persona_summary.length" class="persona-summary">
+          <p v-for="(line, i) in m.persona_summary" :key="i" class="persona-line">{{ line }}</p>
+        </div>
       </div>
 
       <p v-if="globalError" class="global-error">{{ globalError }}</p>
@@ -239,6 +242,7 @@ async function doExtract() {
     done: false,
     errored: false,
     errorMsg: '',
+    persona_summary: [],
     steps: [
       { key: 'collecting',      label: '메시지 수집',      done: false, active: false, startedAt: null },
       { key: 'work_extract',    label: '업무 패턴 추출',   done: false, active: false, startedAt: null },
@@ -308,6 +312,9 @@ function subscribeSSE(sessionId) {
       if (member) {
         completeStep(member, 'writing')
         member.done = true
+        if (data.persona_summary && data.persona_summary.length) {
+          member.persona_summary = data.persona_summary
+        }
       }
       currentSlug.value = null
 
@@ -547,6 +554,20 @@ function completeStep(member, key) {
   font-size: 12px;
   color: #DC2626;
   font-family: var(--font-mono);
+}
+
+.persona-summary {
+  padding: 8px 16px 12px;
+  border-top: 1px solid var(--gray-200);
+}
+.persona-line {
+  font-size: 12px;
+  color: var(--gray-600);
+  line-height: 1.6;
+  margin: 0;
+}
+.persona-line + .persona-line {
+  margin-top: 4px;
 }
 
 .global-error { color: #DC2626; font-size: 13px; margin-top: 12px; }

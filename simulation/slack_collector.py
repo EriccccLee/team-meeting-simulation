@@ -748,12 +748,24 @@ def _process_one_member(
     # 4. 파일 생성
     emit({"type": "writing", "slug": slug, "current": idx, "total": total})
     try:
-        write_profile(slug, display_name, part_a, part_b, team_skills_dir, raw_messages=messages)
+        member_dir = write_profile(slug, display_name, part_a, part_b, team_skills_dir, raw_messages=messages)
     except Exception as e:
         emit({"type": "error", "message": f"{slug}: 파일 저장 실패 — {e}", "slug": slug})
         return
 
-    emit({"type": "member_done", "slug": slug, "current": idx, "total": total})
+    persona_summary: list[str] = []
+    try:
+        persona_text = (member_dir / "persona.md").read_text(encoding="utf-8")
+        for line in persona_text.splitlines():
+            stripped = line.strip()
+            if stripped and not stripped.startswith("#"):
+                persona_summary.append(stripped)
+            if len(persona_summary) >= 3:
+                break
+    except Exception:
+        pass
+
+    emit({"type": "member_done", "slug": slug, "persona_summary": persona_summary, "current": idx, "total": total})
 
 
 def _run_extraction(
