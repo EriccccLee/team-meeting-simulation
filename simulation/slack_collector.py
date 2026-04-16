@@ -331,10 +331,13 @@ def collect_user_messages(
     for channel_id in channels:
         try:
             cursor = None
+            # 유저가 참여한 스레드의 ts 목록 (reply_users 필드로 효율적 탐색)
+            threads_with_user: list[str] = []
             while True:
                 extra = {"cursor": cursor} if cursor else {}
                 resp = client.call("conversations_history", channel=channel_id, limit=200, **extra)
                 for msg in resp.get("messages", []):
+                    # 1. 유저의 최상위 메시지 수집 (기존 동작)
                     if (
                         msg.get("type") == "message"
                         and msg.get("user") == user_id
@@ -353,19 +356,32 @@ def collect_user_messages(
                                     "is_thread_starter": bool(msg.get("reply_count", 0)),
                                     "is_thread_reply": False,
                                 })
+
+                    # 2. 유저가 답장한 스레드 추적 (reply_users 필드 활용)
+                    reply_users = msg.get("reply_users", [])
+                    if (
+                        user_id in reply_users
+                        and msg.get("reply_count", 0) > 0
+                        and msg.get("ts")
+                    ):
+                        threads_with_user.append(msg["ts"])
+
                 next_cursor = (resp.get("response_metadata") or {}).get("next_cursor") or ""
                 if next_cursor and len(messages) < max_collect:
                     cursor = next_cursor
                 else:
                     break
-            # 스레드 답장 수집 — 유저가 시작한 스레드에서 본인의 후속 답장 수집
-            thread_starters = [m for m in messages if m.get("is_thread_starter") and m.get("channel") == channel_id]
-            for ts_msg in thread_starters[:20]:  # 채널당 최대 20개 스레드
+
+            # 3. 유저가 참여한 스레드에서 답장 수집 (채널당 최대 30개 스레드)
+            for thread_ts in threads_with_user[:30]:
                 if len(messages) >= max_collect:
                     break
                 try:
-                    replies = client.call("conversations_replies", channel=channel_id, ts=ts_msg["ts"], limit=200)
-                    for reply in replies.get("messages", [])[1:]:  # [0]은 부모 메시지 (이미 수집됨)
+                    replies = client.call(
+                        "conversations_replies",
+                        channel=channel_id, ts=thread_ts, limit=200,
+                    )
+                    for reply in replies.get("messages", [])[1:]:  # [0]은 부모 메시지
                         if reply.get("user") == user_id and not reply.get("bot_id"):
                             text = reply.get("text", "").strip()
                             if text and not _is_noise(text) and text not in seen_contents:
