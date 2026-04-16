@@ -606,16 +606,24 @@ def build_persona_md(analysis: str, display_name: str, model_client) -> str:
 # ── 파일 쓰기 ─────────────────────────────────────────────────────────────────
 
 _slug_lock = threading.Lock()
+# 현재 추출 실행에서 claim된 slug 집합 — _run_extraction 시작 시 초기화.
+# 같은 실행 내 서로 다른 두 멤버가 같은 slug를 가질 때만 _N suffix 부여.
+# 기존 디렉터리(이전 실행 결과)는 재추출 시 덮어씌움.
+_run_claimed_slugs: set[str] = set()
 
 
-def _unique_slug(slug: str, team_skills_dir: Path) -> str:
-    """슬러그 디렉터리가 이미 존재하면 _2, _3, ... suffix를 붙여 반환."""
-    if not (team_skills_dir / slug).exists():
-        return slug
+def _unique_slug_in_run(slug: str) -> str:
+    """같은 추출 실행 내에서 이미 claim된 slug에만 _N suffix 부여.
+
+    반드시 _slug_lock 보유 상태에서 호출해야 한다.
+    """
+    candidate = slug
     n = 2
-    while (team_skills_dir / f"{slug}_{n}").exists():
+    while candidate in _run_claimed_slugs:
+        candidate = f"{slug}_{n}"
         n += 1
-    return f"{slug}_{n}"
+    _run_claimed_slugs.add(candidate)
+    return candidate
 
 
 def write_profile(
@@ -626,13 +634,16 @@ def write_profile(
     team_skills_dir: Path,
     raw_messages: list[dict] | None = None,
 ) -> Path:
-    """팀원 프로필 파일 세트를 team-skills/{slug}/ 에 생성.
+    """팀원 프로필 파일 세트를 team-skills/{slug}/ 에 생성 또는 덮어씀.
+
+    같은 추출 실행 내에서 slug가 충돌하면 _2, _3, ... suffix 부여.
+    이전 실행으로 생성된 기존 디렉터리는 재추출 시 덮어씌움.
 
     Returns:
         생성된 멤버 디렉터리 Path
     """
     with _slug_lock:
-        unique = _unique_slug(slug, team_skills_dir)
+        unique = _unique_slug_in_run(slug)
         member_dir = team_skills_dir / unique
         member_dir.mkdir(parents=True, exist_ok=True)
 
@@ -801,6 +812,10 @@ def _run_extraction(
 
     def emit(event: dict) -> None:
         q.put(event)
+
+    # 이번 실행의 slug claim 집합 초기화 — 재추출 시 덮어쓰기 허용
+    with _slug_lock:
+        _run_claimed_slugs.clear()
 
     try:
         max_workers = min(total, 3)
