@@ -31,3 +31,10 @@ frontend/dist/
 
 # Environment variables
 .env
+
+# 팀원 프로필 (개인 정보 — 로컬 전용, Slack 추출로 직접 생성)
+team-skills/*/
+
+# 내부 문서 (로컬 전용)
+CLAUDE.md
+plan.md

@@ -99,8 +99,8 @@ cp .env.example .env
 # 필요 스코프: users:read, channels:read, channels:history, groups:read, groups:history
 SLACK_BOT_TOKEN=xoxb-your-bot-token
 
-# 수집 대상 채널 ID 목록 (쉼표 구분, C로 시작하는 채널 ID)
-SLACK_CHANNELS=C01234567,C08901234
+# 수집 대상 채널 ID 목록 (여러개를 넣는 경우에는 쉼표 구분, C로 시작하는 채널 ID)
+SLACK_CHANNELS=C01234567
 ```
 
 > Slack 추출 기능을 사용하지 않고 `team-skills/` 폴더에 프로필을 직접 작성한다면 이 단계는 건너뛰어도 됩니다.
