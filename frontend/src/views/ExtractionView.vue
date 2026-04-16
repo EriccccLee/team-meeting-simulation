@@ -154,6 +154,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
+import { useMeetingStore } from '../stores/meeting'
 
 interface Candidate {
   user_id: string
@@ -185,6 +186,7 @@ interface Member {
 }
 
 const router = useRouter()
+const store = useMeetingStore()
 
 // ── 상태 ──────────────────────────────────────────────────────────────────────
 const step = ref<1 | 2 | 3>(1)
@@ -356,6 +358,7 @@ function subscribeSSE(sessionId: string): void {
         })
       }
       isDone.value = true
+      store.invalidate()
       setTimeout(() => router.push('/'), 3000)
 
     } else if (data.type === 'retry_member') {

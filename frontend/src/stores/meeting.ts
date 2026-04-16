@@ -29,5 +29,9 @@ export const useMeetingStore = defineStore('meeting', () => {
     return participants.value.find(p => p.slug === slug)?.name ?? slug
   }
 
-  return { participants, topic, loaded, fetchParticipants, colorOf, nameOf }
+  function invalidate(): void {
+    loaded.value = false
+  }
+
+  return { participants, topic, loaded, fetchParticipants, colorOf, nameOf, invalidate }
 })
