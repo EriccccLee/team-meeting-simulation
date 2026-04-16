@@ -762,8 +762,8 @@ def _process_one_member(
                 persona_summary.append(stripped)
             if len(persona_summary) >= 3:
                 break
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("persona_summary 추출 실패 (slug=%s): %s", slug, e)
 
     emit({"type": "member_done", "slug": slug, "persona_summary": persona_summary, "current": idx, "total": total})
 

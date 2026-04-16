@@ -181,9 +181,9 @@ const canExtract = computed(() => selectedIds.value.length > 0)
 
 // ── 경과 시간 타이머 ─────────────────────────────────────────────────────────
 const now = ref(Date.now())
-let _timerHandle = null
-onMounted(() => { _timerHandle = setInterval(() => { now.value = Date.now() }, 1000) })
-onUnmounted(() => { clearInterval(_timerHandle) })
+let timerHandle = null
+onMounted(() => { timerHandle = setInterval(() => { now.value = Date.now() }, 1000) })
+onUnmounted(() => { clearInterval(timerHandle) })
 
 // ── Step 1: 탐색 ──────────────────────────────────────────────────────────────
 async function doDiscover() {
