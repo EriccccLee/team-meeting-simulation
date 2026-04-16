@@ -45,6 +45,7 @@ import MeetingSidebar from '../components/MeetingSidebar.vue'
 import ChatBubble from '../components/ChatBubble.vue'
 import PhaseHeader from '../components/PhaseHeader.vue'
 import ConsensusCard from '../components/ConsensusCard.vue'
+import '../assets/chat-layout.css'
 
 const route = useRoute()
 const router = useRouter()
@@ -104,34 +105,4 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-.meeting-page {
-  display: flex;
-  height: 100vh;
-  overflow: hidden;
-}
-
-/* 채팅 영역 */
-.chat-area {
-  flex: 1;
-  overflow-y: auto;
-  padding: 0 40px;
-}
-.chat-inner {
-  max-width: 760px;
-  margin: 0 auto;
-  padding: 32px 0 60px;
-}
-
-.loading-wrap, .error-wrap {
-  display: flex; align-items: center; justify-content: center;
-  height: 100%; color: var(--gray-600); font-size: 14px;
-}
-
-.topic-header { margin-bottom: 24px; }
-.topic-label {
-  font-family: var(--font-mono); font-size: 10px;
-  letter-spacing: 0.08em; color: var(--gray-400);
-  text-transform: uppercase; margin-bottom: 4px;
-}
-.topic-title { font-size: 22px; font-weight: 700; color: var(--black); line-height: 1.3; }
 </style>
