@@ -29,7 +29,7 @@
             :speaker="item.speaker"
             :slug="item.slug"
             :content="item.content"
-            :color="colorOf(item.slug)"
+            :color="store.colorOf(item.slug ?? '')"
           />
         </template>
       </div>
@@ -37,27 +37,42 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { formatDate } from '../utils/format'
+import { useMeetingStore } from '../stores/meeting'
+import '../assets/chat-layout.css'
 import MeetingSidebar from '../components/MeetingSidebar.vue'
 import ChatBubble from '../components/ChatBubble.vue'
 import PhaseHeader from '../components/PhaseHeader.vue'
 import ConsensusCard from '../components/ConsensusCard.vue'
-import '../assets/chat-layout.css'
+
+interface FeedEvent {
+  type: string
+  label?: string
+  content?: string
+  speaker?: string
+  slug?: string
+}
+
+interface HistoryData {
+  topic: string
+  participants: string[]
+  feed: FeedEvent[]
+  timestamp: string
+}
 
 const route = useRoute()
 const router = useRouter()
+const store = useMeetingStore()
 
 const loading = ref(true)
 const error = ref('')
-const data = ref({ topic: '', participants: [], feed: [], timestamp: '' })
-const participants = ref([])  // [{slug, name, color}]
+const data = ref<HistoryData>({ topic: '', participants: [], feed: [], timestamp: '' })
 
 const feed = computed(() => {
   const items = data.value.feed.filter(e => e.type !== 'done')
-  // 마지막 moderator → consensus 로 변환 (MeetingView 와 동일 로직)
   const result = [...items]
   const last = result[result.length - 1]
   if (last && last.type === 'moderator') {
@@ -69,8 +84,8 @@ const feed = computed(() => {
 const sidebarParticipants = computed(() =>
   data.value.participants.map(slug => ({
     slug,
-    name: nameOf(slug),
-    color: colorOf(slug),
+    name: store.nameOf(slug),
+    color: store.colorOf(slug),
   }))
 )
 
@@ -80,24 +95,16 @@ const historyPhaseSteps = [
   { label: 'Phase 3', state: 'done' },
 ]
 
-function colorOf(slug) {
-  return participants.value.find(p => p.slug === slug)?.color ?? '#999'
-}
-function nameOf(slug) {
-  return participants.value.find(p => p.slug === slug)?.name ?? slug
-}
 onMounted(async () => {
   try {
-    const [histRes, partRes] = await Promise.all([
+    const [histRes] = await Promise.all([
       fetch(`/api/history/${route.params.sessionId}`),
-      fetch('/api/participants'),
+      store.fetchParticipants(),
     ])
     if (!histRes.ok) throw new Error('기록을 찾을 수 없습니다.')
-    if (!partRes.ok) throw new Error('참여자 정보를 불러올 수 없습니다.')
     data.value = await histRes.json()
-    participants.value = await partRes.json()
   } catch (e) {
-    error.value = e.message
+    error.value = (e as Error).message
   } finally {
     loading.value = false
   }

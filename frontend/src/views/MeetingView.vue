@@ -3,7 +3,7 @@
     <!-- 좌측 사이드바 -->
     <MeetingSidebar
       logo-text="MEETING"
-      :participants="participants"
+      :participants="store.participants"
       :active-speaker="activeSpeaker"
       :phases="phaseSteps"
       :status-dot="statusClass"
@@ -17,7 +17,7 @@
       <div class="chat-inner">
         <div class="topic-header">
           <p class="topic-label">AGENDA</p>
-          <h1 class="topic-title">{{ topic }}</h1>
+          <h1 class="topic-title">{{ store.topic }}</h1>
         </div>
 
         <!-- 파일 전처리 진행 상황 -->
@@ -43,7 +43,7 @@
             :speaker="item.speaker"
             :slug="item.slug"
             :content="item.content"
-            :color="colorOf(item.slug)"
+            :color="store.colorOf(item.slug ?? '')"
           />
         </template>
 
@@ -59,33 +59,47 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { useMeetingStore } from '../stores/meeting'
+import '../assets/chat-layout.css'
 import MeetingSidebar from '../components/MeetingSidebar.vue'
 import ChatBubble from '../components/ChatBubble.vue'
 import PhaseHeader from '../components/PhaseHeader.vue'
 import ConsensusCard from '../components/ConsensusCard.vue'
-import '../assets/chat-layout.css'
+
+interface FeedItem {
+  type: 'phase' | 'moderator' | 'message' | 'consensus'
+  label?: string
+  content?: string
+  speaker?: string
+  slug?: string
+}
+
+interface PreprocessingFile {
+  filename: string
+  message: string
+  done: boolean
+}
 
 const route = useRoute()
 const router = useRouter()
+const store = useMeetingStore()
 
-const sessionId = route.query.session
-const topic = ref('')
-const feed = ref([])
-const participants = ref([])
+const sessionId = route.query.session as string | undefined
+const feed = ref<FeedItem[]>([])
 const activeSpeaker = ref('')
 const currentPhase = ref(0)
 const isRunning = ref(true)
 const isDone = ref(false)
 const hasError = ref(false)
-const chatArea = ref(null)
-const preprocessingFiles = ref([])  // [{filename, message, done}]
+const chatArea = ref<HTMLElement | null>(null)
+const preprocessingFiles = ref<PreprocessingFile[]>([])
 const isPreprocessing = computed(() => preprocessingFiles.value.some(f => !f.done))
-const attachedFiles = ref([])
+const attachedFiles = ref<string[]>([])
 
-let es = null  // EventSource
+let es: EventSource | null = null
 
 const statusClass = computed(() => {
   if (hasError.value) return 'error'
@@ -108,11 +122,7 @@ const phaseSteps = computed(() =>
   }))
 )
 
-function colorOf(slug) {
-  return participants.value.find(p => p.slug === slug)?.color ?? '#999'
-}
-
-async function scrollToBottom() {
+async function scrollToBottom(): Promise<void> {
   await nextTick()
   if (chatArea.value) {
     chatArea.value.scrollTop = chatArea.value.scrollHeight
@@ -122,62 +132,50 @@ async function scrollToBottom() {
 onMounted(async () => {
   if (!sessionId) { router.push('/'); return }
 
-  // 참여자 정보 복원 — sessionStorage 없으면 API fallback
   try {
-    const cached = JSON.parse(sessionStorage.getItem('participants') || '[]')
-    if (cached.length > 0) {
-      participants.value = cached
-    } else {
-      const res = await fetch('/api/participants')
-      if (res.ok) {
-        participants.value = await res.json()
-      } else {
-        hasError.value = true
-        isRunning.value = false
-      }
-    }
+    await store.fetchParticipants()
   } catch (_) {
     hasError.value = true
     isRunning.value = false
   }
 
-  // topic 복원
-  topic.value = sessionStorage.getItem('topic') || ''
-
-  // SSE 연결
   if (hasError.value) return
   es = new EventSource(`/api/stream/${sessionId}`)
 
-  es.onmessage = async (e) => {
-    const event = JSON.parse(e.data)
+  es.onmessage = async (e: MessageEvent) => {
+    const event = JSON.parse(e.data) as Record<string, unknown>
 
     if (event.type === 'preprocessing') {
       const existing = preprocessingFiles.value.find(f => f.filename === event.filename)
       if (existing) {
-        existing.message = event.message
-        existing.done = event.done
+        existing.message = event.message as string
+        existing.done = event.done as boolean
       } else {
-        preprocessingFiles.value.push({ filename: event.filename, message: event.message, done: event.done })
+        preprocessingFiles.value.push({
+          filename: event.filename as string,
+          message: event.message as string,
+          done: event.done as boolean,
+        })
       }
-      if (!attachedFiles.value.includes(event.filename)) {
-        attachedFiles.value.push(event.filename)
+      if (!attachedFiles.value.includes(event.filename as string)) {
+        attachedFiles.value.push(event.filename as string)
       }
     } else if (event.type === 'phase') {
-      currentPhase.value = parseInt(event.label.match(/\d+/)?.[0] || '0')
-      feed.value.push({ type: 'phase', label: event.label })
+      const label = event.label as string
+      currentPhase.value = parseInt(label.match(/\d+/)?.[0] || '0')
+      feed.value.push({ type: 'phase', label })
     } else if (event.type === 'moderator') {
       activeSpeaker.value = ''
-      feed.value.push({ type: 'moderator', content: event.content })
+      feed.value.push({ type: 'moderator', content: event.content as string })
     } else if (event.type === 'message') {
-      activeSpeaker.value = event.slug
+      activeSpeaker.value = event.slug as string
       feed.value.push({
         type: 'message',
-        speaker: event.speaker,
-        slug: event.slug,
-        content: event.content,
+        speaker: event.speaker as string,
+        slug: event.slug as string,
+        content: event.content as string,
       })
     } else if (event.type === 'done') {
-      // 마지막 moderator 메시지가 합의안이므로 ConsensusCard 로 교체
       const last = feed.value[feed.value.length - 1]
       if (last && last.type === 'moderator') {
         feed.value[feed.value.length - 1] = { type: 'consensus', content: last.content }
@@ -194,7 +192,7 @@ onMounted(async () => {
       hasError.value = true
       feed.value.push({ type: 'moderator', content: `[오류] ${event.message}` })
     } else if (event.type === 'end') {
-      es.close()
+      es?.close()
     }
 
     await scrollToBottom()
@@ -205,7 +203,7 @@ onMounted(async () => {
       hasError.value = true
       isRunning.value = false
     }
-    es.close()
+    es?.close()
   }
 })
 
@@ -213,19 +211,18 @@ onUnmounted(() => {
   es?.close()
 })
 
-function startNewMeeting() {
+function startNewMeeting(): void {
   es?.close()
-  sessionStorage.removeItem('participants')
-  sessionStorage.removeItem('topic')
+  store.topic = ''
   router.push('/')
 }
 
-async function cancelMeeting() {
+async function cancelMeeting(): Promise<void> {
   if (!confirm('진행 중인 시뮬레이션을 중단하시겠습니까?')) return
   try {
     await fetch(`/api/stream/${sessionId}`, { method: 'DELETE' })
   } catch (_) {}
-  isDone.value = true  // prevent onerror from setting hasError spuriously
+  isDone.value = true
   es?.close()
   isRunning.value = false
   router.push('/')

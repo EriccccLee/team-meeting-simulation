@@ -51,7 +51,7 @@
           <label class="field-label">참여자</label>
           <div v-if="loadingParticipants" class="loading-text">불러오는 중...</div>
           <ul v-else class="participant-list">
-            <li v-for="p in allParticipants" :key="p.slug" class="participant-item">
+            <li v-for="p in store.participants" :key="p.slug" class="participant-item">
               <label class="participant-label">
                 <input type="checkbox" :value="p.slug" v-model="selectedSlugs" />
                 <span class="p-avatar" :style="{ background: p.color }">
@@ -108,24 +108,33 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { formatDate } from '../utils/format'
+import { useMeetingStore } from '../stores/meeting'
 
 const router = useRouter()
-const historyList = ref([])
+const store = useMeetingStore()
+
+interface HistoryItem {
+  session_id: string
+  topic: string
+  participants: string[]
+  timestamp: string
+}
+
+const historyList = ref<HistoryItem[]>([])
 
 const topic = ref('')
-const files = ref([])
-const selectedSlugs = ref([])
+const files = ref<File[]>([])
+const selectedSlugs = ref<string[]>([])
 const rounds = ref(3)
-const allParticipants = ref([])
 const loadingParticipants = ref(true)
 const isSubmitting = ref(false)
 const error = ref('')
 const isDragging = ref(false)
-const fileInput = ref(null)
+const fileInput = ref<HTMLInputElement | null>(null)
 
 const canStart = computed(() => topic.value.trim() && selectedSlugs.value.length > 0)
 
@@ -136,10 +145,9 @@ const estimatedMinutes = computed(() => {
 
 onMounted(async () => {
   try {
-    const res = await fetch('/api/participants')
-    allParticipants.value = await res.json()
-    selectedSlugs.value = allParticipants.value.map(p => p.slug)
-    if (allParticipants.value.length === 0) {
+    await store.fetchParticipants()
+    selectedSlugs.value = store.participants.map(p => p.slug)
+    if (store.participants.length === 0) {
       router.push('/extract')
       return
     }
@@ -155,14 +163,11 @@ onMounted(async () => {
   } catch (_) {}
 })
 
-function participantNames(slugs) {
-  return slugs.map(slug => {
-    const p = allParticipants.value.find(pp => pp.slug === slug)
-    return p ? p.name : slug
-  }).join(' · ')
+function participantNames(slugs: string[]): string {
+  return slugs.map(slug => store.nameOf(slug)).join(' · ')
 }
 
-async function deleteHistory(sessionId) {
+async function deleteHistory(sessionId: string): Promise<void> {
   if (!confirm('이 회의 기록을 삭제하시겠습니까?')) return
   const res = await fetch(`/api/history/${sessionId}`, { method: 'DELETE' })
   if (!res.ok) {
@@ -172,24 +177,25 @@ async function deleteHistory(sessionId) {
   historyList.value = historyList.value.filter(h => h.session_id !== sessionId)
 }
 
-function addFiles(incoming) {
+function addFiles(incoming: FileList): void {
   const existingNames = new Set(files.value.map(f => f.name))
   const unique = Array.from(incoming).filter(f => !existingNames.has(f.name))
   files.value.push(...unique)
 }
-function onDrop(e) {
+function onDrop(e: DragEvent): void {
   isDragging.value = false
-  addFiles(e.dataTransfer.files)
+  if (e.dataTransfer?.files) addFiles(e.dataTransfer.files)
 }
-function onFileChange(e) {
-  addFiles(e.target.files)
-  e.target.value = ''
+function onFileChange(e: Event): void {
+  const input = e.target as HTMLInputElement
+  if (input.files) addFiles(input.files)
+  input.value = ''
 }
-function removeFile(i) {
+function removeFile(i: number): void {
   files.value.splice(i, 1)
 }
 
-async function startSimulation() {
+async function startSimulation(): Promise<void> {
   if (!canStart.value) return
   isSubmitting.value = true
   error.value = ''
@@ -198,7 +204,7 @@ async function startSimulation() {
     const formData = new FormData()
     formData.append('topic', topic.value.trim())
     selectedSlugs.value.forEach(s => formData.append('participants', s))
-    formData.append('rounds', rounds.value)
+    formData.append('rounds', String(rounds.value))
     files.value.forEach(f => formData.append('files', f))
 
     const res = await fetch('/api/run', { method: 'POST', body: formData })
@@ -208,11 +214,10 @@ async function startSimulation() {
     }
     const { session_id } = await res.json()
 
-    sessionStorage.setItem('participants', JSON.stringify(allParticipants.value))
-    sessionStorage.setItem('topic', topic.value.trim())
+    store.topic = topic.value.trim()
     router.push({ path: '/meeting', query: { session: session_id } })
   } catch (e) {
-    error.value = e.message
+    error.value = (e as Error).message
     isSubmitting.value = false
   }
 }
