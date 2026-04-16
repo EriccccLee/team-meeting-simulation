@@ -368,6 +368,7 @@ async def stream_events(session_id: str) -> StreamingResponse:
                     break
                 data = json.dumps(event, ensure_ascii=False)
                 yield f"data: {data}\n\n"
+                await asyncio.sleep(0)  # 이벤트 루프에 제어권 반환 → uvicorn TCP flush
         finally:
             _sessions.pop(session_id, None)
 
