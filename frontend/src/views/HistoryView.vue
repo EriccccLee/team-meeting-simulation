@@ -40,7 +40,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { formatDate } from '../utils/format.js'
+import { formatDate } from '../utils/format'
 import MeetingSidebar from '../components/MeetingSidebar.vue'
 import ChatBubble from '../components/ChatBubble.vue'
 import PhaseHeader from '../components/PhaseHeader.vue'

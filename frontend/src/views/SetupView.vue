@@ -111,7 +111,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { formatDate } from '../utils/format.js'
+import { formatDate } from '../utils/format'
 
 const router = useRouter()
 const historyList = ref([])
