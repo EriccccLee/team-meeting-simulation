@@ -673,8 +673,87 @@ def write_profile(
 
 # ── 추출 오케스트레이터 ───────────────────────────────────────────────────────
 
+def _process_one_member(
+    member: dict,
+    token: str,
+    channels: list[str] | None,
+    model_client,
+    team_skills_dir: Path,
+    max_collect: int,
+    max_messages: int,
+    emit,
+    idx: int,
+    total: int,
+) -> None:
+    """단일 팀원의 전체 추출 파이프라인 (스레드 안전)."""
+    user_id = member["user_id"]
+    slug = member["slug"]
+    display_name = member["display_name"]
+    role = member.get("role", "general")
+    impression = member.get("impression", "")
+
+    # 1. 메시지 수집
+    emit({"type": "collecting", "slug": slug, "current": idx, "total": total})
+    try:
+        messages = collect_user_messages(
+            user_id, token, channels=channels, max_collect=max_collect
+        )
+    except Exception as e:
+        emit({"type": "error", "message": f"{slug}: 메시지 수집 실패 — {e}", "slug": slug})
+        return
+
+    if not messages:
+        emit({"type": "error", "message": f"{slug}: 필터링 후 메시지가 없습니다.", "slug": slug})
+        return
+
+    # 2. Stage 1 병렬: work_extract + persona_extract 동시 실행
+    emit({"type": "analyzing", "slug": slug, "step": "work_extract", "current": idx, "total": total})
+    try:
+        with ThreadPoolExecutor(max_workers=2) as stage1_pool:
+            work_fut = stage1_pool.submit(
+                extract_work_patterns, messages, model_client, max_messages, role
+            )
+            persona_fut = stage1_pool.submit(
+                extract_persona_patterns, messages, model_client, max_messages, impression
+            )
+        work_analysis = work_fut.result()
+        persona_analysis = persona_fut.result()
+    except Exception as e:
+        emit({"type": "error", "message": f"{slug}: 패턴 추출 실패 — {e}", "slug": slug})
+        return
+
+    # 3. Stage 2 병렬: work_build + persona_build 동시 실행
+    # work_extract/persona_extract 완료 표시 후 work_build/persona_build 시작
+    emit({"type": "analyzing", "slug": slug, "step": "persona_extract", "current": idx, "total": total})
+    emit({"type": "analyzing", "slug": slug, "step": "work_build", "current": idx, "total": total})
+    try:
+        with ThreadPoolExecutor(max_workers=2) as stage2_pool:
+            build_work_fut = stage2_pool.submit(
+                build_work_md, work_analysis, display_name, model_client
+            )
+            build_persona_fut = stage2_pool.submit(
+                build_persona_md, persona_analysis, display_name, model_client
+            )
+        part_a = build_work_fut.result()
+        part_b = build_persona_fut.result()
+    except Exception as e:
+        emit({"type": "error", "message": f"{slug}: 프로필 생성 실패 — {e}", "slug": slug})
+        return
+
+    # 4. 파일 생성
+    emit({"type": "analyzing", "slug": slug, "step": "persona_build", "current": idx, "total": total})
+    emit({"type": "writing", "slug": slug, "current": idx, "total": total})
+    try:
+        write_profile(slug, display_name, part_a, part_b, team_skills_dir, raw_messages=messages)
+    except Exception as e:
+        emit({"type": "error", "message": f"{slug}: 파일 저장 실패 — {e}", "slug": slug})
+        return
+
+    emit({"type": "member_done", "slug": slug, "current": idx, "total": total})
+
+
 def _run_extraction(
-    members: list[dict],    # [{"user_id", "slug", "display_name", "role", "impression"}, ...]
+    members: list[dict],
     token: str,
     channels: list[str] | None,
     q: stdlib_queue.SimpleQueue,
@@ -682,10 +761,10 @@ def _run_extraction(
     max_collect: int = _DEFAULT_MAX_COLLECT,
     max_messages: int = _DEFAULT_MAX_MESSAGES,
 ) -> None:
-    """팀원 목록을 순차 처리하며 SSE 이벤트를 q에 emit.
+    """팀원 목록을 병렬 처리하며 SSE 이벤트를 q에 emit.
 
-    각 팀원당: 수집 → 업무분석 → 페르소나분석 → 파일생성
-    오류 발생 시 해당 멤버 스킵 후 다음 멤버 계속 진행.
+    멤버 간: ThreadPoolExecutor(max_workers=min(len(members), 3))
+    멤버 내: Stage 1(work_extract+persona_extract) 병렬, Stage 2(work_build+persona_build) 병렬
     마지막에 None sentinel을 q에 넣어 SSE generator 종료 신호 전달.
     """
     from simulation.model_client import ClaudeCodeModelClient
@@ -697,69 +776,23 @@ def _run_extraction(
         q.put(event)
 
     try:
-        for i, member in enumerate(members, start=1):
-            user_id = member["user_id"]
-            slug = member["slug"]
-            display_name = member["display_name"]
-            role = member.get("role", "general")
-            impression = member.get("impression", "")
-
-            # 1. 메시지 수집
-            emit({"type": "collecting", "slug": slug, "current": i, "total": total})
-            try:
-                messages = collect_user_messages(user_id, token, channels=channels, max_collect=max_collect)
-            except Exception as e:
-                emit({"type": "error", "message": f"{slug}: 메시지 수집 실패 — {e}", "slug": slug})
-                continue
-
-            if not messages:
-                emit({"type": "error", "message": f"{slug}: 필터링 후 메시지가 없습니다.", "slug": slug})
-                continue
-
-            # 2. 업무 패턴 추출 (Stage 1)
-            emit({"type": "analyzing", "slug": slug, "step": "work_extract", "current": i, "total": total})
-            try:
-                work_analysis = extract_work_patterns(messages, model_client, max_messages=max_messages, role=role)
-            except Exception as e:
-                emit({"type": "error", "message": f"{slug}: 업무 패턴 추출 실패 — {e}", "slug": slug})
-                continue
-
-            # 3. 업무 프로필 빌드 (Stage 2)
-            emit({"type": "analyzing", "slug": slug, "step": "work_build", "current": i, "total": total})
-            try:
-                part_a = build_work_md(work_analysis, display_name, model_client)
-            except Exception as e:
-                emit({"type": "error", "message": f"{slug}: 업무 프로필 생성 실패 — {e}", "slug": slug})
-                continue
-
-            # 4. 페르소나 패턴 추출 (Stage 1)
-            emit({"type": "analyzing", "slug": slug, "step": "persona_extract", "current": i, "total": total})
-            try:
-                persona_analysis = extract_persona_patterns(
-                    messages, model_client, max_messages=max_messages,
-                    impression=impression,
+        max_workers = min(total, 3)
+        with ThreadPoolExecutor(max_workers=max_workers) as member_pool:
+            futures = [
+                member_pool.submit(
+                    _process_one_member,
+                    member, token, channels, model_client,
+                    team_skills_dir, max_collect, max_messages,
+                    emit, idx, total,
                 )
-            except Exception as e:
-                emit({"type": "error", "message": f"{slug}: 페르소나 패턴 추출 실패 — {e}", "slug": slug})
-                continue
-
-            # 5. 페르소나 빌드 (Stage 2)
-            emit({"type": "analyzing", "slug": slug, "step": "persona_build", "current": i, "total": total})
+                for idx, member in enumerate(members, start=1)
+            ]
+        # 예외 전파 — 각 멤버 스레드의 미처리 예외를 로그로 남김
+        for f in futures:
             try:
-                part_b = build_persona_md(persona_analysis, display_name, model_client)
+                f.result()
             except Exception as e:
-                emit({"type": "error", "message": f"{slug}: 페르소나 생성 실패 — {e}", "slug": slug})
-                continue
-
-            # 6. 파일 생성
-            emit({"type": "writing", "slug": slug, "current": i, "total": total})
-            try:
-                write_profile(slug, display_name, part_a, part_b, team_skills_dir, raw_messages=messages)
-            except Exception as e:
-                emit({"type": "error", "message": f"{slug}: 파일 저장 실패 — {e}", "slug": slug})
-                continue
-
-            emit({"type": "member_done", "slug": slug, "current": i, "total": total})
+                logger.error("멤버 처리 중 예외: %s", e)
 
         emit({"type": "done"})
 
