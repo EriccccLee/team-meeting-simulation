@@ -21,26 +21,29 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { computed } from 'vue'
-import { marked } from 'marked'
-import DOMPurify from 'dompurify'
+import { renderMarkdown } from '../utils/markdown'
 
-const props = defineProps({
-  type:    { type: String, required: true },   // 'message' | 'moderator'
-  speaker: { type: String, default: '' },
-  slug:    { type: String, default: '' },
-  content: { type: String, required: true },
-  color:   { type: String, default: '#999' },
+interface Props {
+  type: 'message' | 'moderator'
+  speaker?: string
+  slug?: string
+  content: string
+  color?: string
+}
+
+const props = withDefaults(defineProps<Props>(), {
+  speaker: '',
+  slug: '',
+  color: '#999',
 })
 
 const initials = computed(() =>
   props.speaker ? props.speaker.slice(0, 2) : '??'
 )
 
-const renderedContent = computed(() =>
-  DOMPurify.sanitize(marked.parse(props.content || ''))
-)
+const renderedContent = computed(() => renderMarkdown(props.content))
 </script>
 
 <style scoped>

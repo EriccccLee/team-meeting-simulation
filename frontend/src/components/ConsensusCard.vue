@@ -11,17 +11,14 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { computed } from 'vue'
-import { marked } from 'marked'
-import DOMPurify from 'dompurify'
+import { renderMarkdown } from '../utils/markdown'
 import PhaseHeader from './PhaseHeader.vue'
 
-const props = defineProps({ content: { type: String, required: true } })
+const props = defineProps<{ content: string }>()
 
-const renderedContent = computed(() =>
-  DOMPurify.sanitize(marked.parse(props.content || ''))
-)
+const renderedContent = computed(() => renderMarkdown(props.content))
 </script>
 
 <style scoped>

@@ -58,18 +58,41 @@
   </aside>
 </template>
 
-<script setup>
-defineProps({
-  logoText:     { type: String,  default: 'MEETING' },
-  participants: { type: Array,   default: () => [] },
-  activeSpeaker:{ type: String,  default: '' },
-  phases:       { type: Array,   default: () => [] },
-  statusDot:    { type: String,  default: '' },
-  statusText:   { type: String,  default: '' },
-  attachments:  { type: Array,   default: () => [] },
+<script setup lang="ts">
+export interface PhaseStep {
+  label: string
+  state: string
+}
+
+export interface SidebarParticipant {
+  slug: string
+  name: string
+  color: string
+}
+
+interface Props {
+  logoText?: string
+  participants?: SidebarParticipant[]
+  activeSpeaker?: string
+  phases?: PhaseStep[]
+  statusDot?: string
+  statusText?: string
+  attachments?: string[]
+}
+
+withDefaults(defineProps<Props>(), {
+  logoText: 'MEETING',
+  participants: () => [],
+  activeSpeaker: '',
+  phases: () => [],
+  statusDot: '',
+  statusText: '',
+  attachments: () => [],
 })
 
-defineEmits(['new-meeting'])
+defineEmits<{
+  'new-meeting': []
+}>()
 </script>
 
 <style scoped>
