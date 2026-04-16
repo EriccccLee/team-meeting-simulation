@@ -32,10 +32,12 @@
           class="candidate-item"
           :class="{ selected: selectedIds.includes(c.user_id) }"
         >
-          <input type="checkbox" :value="c.user_id" v-model="selectedIds" />
-          <div class="cand-info">
-            <span class="cand-name">{{ c.display_name }}</span>
-            <span class="cand-badge">{{ c.message_count }}개</span>
+          <div class="cand-top">
+            <input type="checkbox" :value="c.user_id" v-model="selectedIds" />
+            <div class="cand-info">
+              <span class="cand-name">{{ c.display_name }}</span>
+              <span class="cand-badge">{{ c.message_count }}개</span>
+            </div>
           </div>
           <div class="cand-intake">
             <input
@@ -48,7 +50,7 @@
             <input
               class="impression-input"
               v-model="c.impression"
-              placeholder="한 마디 인상 (선택사항)"
+              placeholder="인상 (선택사항)"
               maxlength="200"
               :disabled="!selectedIds.includes(c.user_id)"
             />
@@ -107,40 +109,42 @@
       <div v-if="isCancelled" class="cancel-msg">
         추출이 중단되었습니다. 페이지를 새로고침하여 다시 시도할 수 있습니다.
       </div>
-      <div
-        v-for="m in members"
-        :key="m.slug"
-        class="member-card"
-        :class="{
-          active: m.steps.some(s => s.active),
-          done: m.done,
-          errored: m.errored
-        }"
-      >
-        <div class="member-header">
-          <div class="member-title">
-            <span class="member-name">{{ m.display_name }}</span>
-            <span class="member-slug">{{ m.slug }}</span>
+      <div class="member-grid">
+        <div
+          v-for="m in members"
+          :key="m.slug"
+          class="member-card"
+          :class="{
+            active: m.steps.some(s => s.active),
+            done: m.done,
+            errored: m.errored
+          }"
+        >
+          <div class="member-header">
+            <div class="member-title">
+              <span class="member-name">{{ m.display_name }}</span>
+              <span class="member-slug">{{ m.slug }}</span>
+            </div>
+            <span class="member-idx">[{{ m.index }}/{{ members.length }}]</span>
           </div>
-          <span class="member-idx">[{{ m.index }}/{{ members.length }}]</span>
-        </div>
-        <div v-if="m.steps.some(s => s.done || s.active) || m.done || m.errored" class="member-steps">
-          <div
-            v-for="s in m.steps"
-            :key="s.key"
-            class="step-row"
-            :class="{ 'step-done': s.done, 'step-active': s.active }"
-          >
-            <span class="step-icon">{{ s.done ? '✓' : s.active ? '⟳' : '○' }}</span>
-            <span class="step-text">{{ s.label }}</span>
-            <span v-if="s.active && s.startedAt" class="step-elapsed">
-              {{ Math.floor((now - s.startedAt) / 1000) }}s
-            </span>
+          <div v-if="m.steps.some(s => s.done || s.active) || m.done || m.errored" class="member-steps">
+            <div
+              v-for="s in m.steps"
+              :key="s.key"
+              class="step-row"
+              :class="{ 'step-done': s.done, 'step-active': s.active }"
+            >
+              <span class="step-icon">{{ s.done ? '✓' : s.active ? '⟳' : '○' }}</span>
+              <span class="step-text">{{ s.label }}</span>
+              <span v-if="s.active && s.startedAt" class="step-elapsed">
+                {{ Math.floor((now - s.startedAt) / 1000) }}s
+              </span>
+            </div>
+            <div v-if="m.errored" class="member-error">{{ m.errorMsg }}</div>
           </div>
-          <div v-if="m.errored" class="member-error">{{ m.errorMsg }}</div>
-        </div>
-        <div v-if="m.done && m.persona_summary.length" class="persona-summary">
-          <p v-for="(line, i) in m.persona_summary" :key="i" class="persona-line">{{ line }}</p>
+          <div v-if="m.done && m.persona_summary.length" class="persona-summary">
+            <p v-for="(line, i) in m.persona_summary" :key="i" class="persona-line">{{ line }}</p>
+          </div>
         </div>
       </div>
 
@@ -553,20 +557,31 @@ function completeStep(member: Member, key: string): void {
 }
 .btn-start:hover:not(:disabled) { background: #222; }
 
-.candidate-list { list-style: none; display: flex; flex-direction: column; gap: 8px; }
+/* Step 2: 2열 그리드 */
+.candidate-list {
+  list-style: none;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
 .candidate-item {
   display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 12px 16px;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 14px;
   border: 1px solid var(--gray-200);
   border-radius: 4px;
   transition: border-color 0.2s;
 }
 .candidate-item.selected { border-color: var(--black); }
-.candidate-item input[type="checkbox"] { accent-color: var(--orange); flex-shrink: 0; }
-.cand-info { display: flex; align-items: center; gap: 8px; flex: 1; }
-.cand-name { font-size: 14px; font-weight: 500; }
+.cand-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.cand-top input[type="checkbox"] { accent-color: var(--orange); flex-shrink: 0; }
+.cand-info { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; }
+.cand-name { font-size: 14px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .cand-badge {
   font-family: var(--font-mono);
   font-size: 11px;
@@ -575,17 +590,19 @@ function completeStep(member: Member, key: string): void {
   border-radius: 10px;
   padding: 2px 8px;
   color: var(--gray-600);
+  flex-shrink: 0;
 }
 .cand-intake {
   display: flex;
   align-items: center;
-  gap: 8px;
-  flex-shrink: 0;
+  gap: 6px;
+  width: 100%;
 }
 .slug-input {
   font-family: var(--font-mono);
   font-size: 11px;
-  width: 90px;
+  width: 80px;
+  flex-shrink: 0;
   padding: 3px 7px;
   border: 1px solid var(--gray-200);
   border-radius: 3px;
@@ -596,7 +613,8 @@ function completeStep(member: Member, key: string): void {
 .slug-input:disabled { color: var(--gray-400); }
 .impression-input {
   font-size: 12px;
-  width: 140px;
+  flex: 1;
+  min-width: 0;
   padding: 3px 7px;
   border: 1px solid var(--gray-200);
   border-radius: 3px;
@@ -605,11 +623,17 @@ function completeStep(member: Member, key: string): void {
 .impression-input:focus { outline: none; border-color: var(--orange); }
 .impression-input:disabled { color: var(--gray-400); }
 
-.step3 { max-width: 540px; }
+/* Step 3: 3열 그리드 */
+.step3 { max-width: none; }
+.member-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin-bottom: 12px;
+}
 .member-card {
   border: 1px solid var(--gray-200);
   border-radius: 4px;
-  margin-bottom: 10px;
   overflow: hidden;
   transition: border-color 0.2s;
 }
