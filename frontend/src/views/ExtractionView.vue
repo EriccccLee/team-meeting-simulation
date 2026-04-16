@@ -110,7 +110,7 @@
         :key="m.slug"
         class="member-card"
         :class="{
-          active: m.slug === currentSlug,
+          active: m.steps.some(s => s.active),
           done: m.done,
           errored: m.errored
         }"
@@ -122,7 +122,7 @@
           </div>
           <span class="member-idx">[{{ m.index }}/{{ members.length }}]</span>
         </div>
-        <div v-if="m.slug === currentSlug || m.done || m.errored" class="member-steps">
+        <div v-if="m.steps.some(s => s.done || s.active) || m.done || m.errored" class="member-steps">
           <div
             v-for="s in m.steps"
             :key="s.key"
@@ -163,7 +163,6 @@ const candidates = ref([])
 const selectedIds = ref([])
 
 const members = ref([])
-const currentSlug = ref(null)
 const isDone = ref(false)
 const doneCount = computed(() => members.value.filter(m => m.done).length)
 
@@ -291,7 +290,6 @@ function subscribeSSE(sessionId) {
     const member = members.value.find(m => m.slug === data.slug)
 
     if (data.type === 'collecting') {
-      currentSlug.value = data.slug
       if (member) activateStep(member, 'collecting')
 
     } else if (data.type === 'analyzing') {
@@ -316,8 +314,6 @@ function subscribeSSE(sessionId) {
           member.persona_summary = data.persona_summary
         }
       }
-      currentSlug.value = null
-
     } else if (data.type === 'done') {
       isDone.value = true
       setTimeout(() => router.push('/'), 3000)
