@@ -154,8 +154,8 @@ def _is_noise(text: str) -> bool:
     if not no_emoji:
         return True  # 이모지만으로 구성된 메시지
 
-    # 너무 짧으면 노이즈 (2자 이하)
-    if len(no_emoji) <= 2:
+    # 너무 짧으면 노이즈 (1자 이하)
+    if len(no_emoji) <= 1:
         return True
 
     return False
@@ -174,18 +174,15 @@ def discover_users(
         [{"user_id", "display_name", "message_count", "suggested_slug"}, ...]
         메시지 수 내림차순 정렬.
     """
-    client = WebClient(token=token)
+    client = RateLimitedSlackClient(token)
     user_counts: dict[str, int] = {}
 
     for channel_id in channels:
         try:
             cursor = None
             while True:
-                resp = client.conversations_history(
-                    channel=channel_id,
-                    cursor=cursor,
-                    limit=200,
-                )
+                resp = client.call("conversations_history", channel=channel_id, limit=200) if cursor is None else \
+                       client.call("conversations_history", channel=channel_id, cursor=cursor, limit=200)
                 for msg in resp.get("messages", []):
                     if (
                         msg.get("type") == "message"
@@ -213,7 +210,7 @@ def discover_users(
     result: list[dict] = []
     for user_id, count in qualified.items():
         try:
-            user_info = client.users_info(user=user_id)["user"]
+            user_info = client.call("users_info", user=user_id)["user"]
         except SlackApiError as e:
             logger.warning("users_info 실패 (user=%s, 스킵): %s", user_id, e)
             continue
@@ -320,6 +317,7 @@ def collect_user_messages(
 
     client = RateLimitedSlackClient(token)
     messages: list[dict] = []
+    seen_contents: set[str] = set()
 
     for channel_id in channels:
         try:
@@ -336,12 +334,14 @@ def collect_user_messages(
                     ):
                         text = msg.get("text", "").strip()
                         if text and not _is_noise(text):
-                            messages.append({
-                                "content": text,
-                                "ts": msg.get("ts", ""),
-                                "channel": channel_id,
-                                "is_thread_starter": bool(msg.get("reply_count", 0)),
-                            })
+                            if text not in seen_contents:
+                                seen_contents.add(text)
+                                messages.append({
+                                    "content": text,
+                                    "ts": msg.get("ts", ""),
+                                    "channel": channel_id,
+                                    "is_thread_starter": bool(msg.get("reply_count", 0)),
+                                })
                 next_cursor = (resp.get("response_metadata") or {}).get("next_cursor") or ""
                 if next_cursor and len(messages) < max_collect:
                     cursor = next_cursor
@@ -362,64 +362,7 @@ def collect_user_messages(
 
 _WORK_SYSTEM = "당신은 팀원 분석 전문가입니다. Slack 메시지를 기반으로 업무 프로필을 작성합니다."
 
-WORK_ANALYSIS_PROMPT = """\
-다음은 한 팀원이 Slack에서 보낸 메시지 목록입니다.
-이 메시지들을 분석해 해당 팀원의 업무 역량 프로필(Part A)을 **한국어**로 작성하세요.
-
-## 출력 형식
-
-다음 항목을 포함하는 마크다운 문서를 작성하세요:
-
-### 주요 업무 역할
-이 팀원이 실제로 담당하는 업무 영역을 구체적으로 서술하세요.
-
-### 기술 스택
-언급되거나 사용되는 언어, 도구, 프레임워크, 플랫폼을 나열하세요.
-
-### 업무 처리 스타일
-문제 접근 방식, 작업 선호도, 실행 패턴을 서술하세요.
-
-### 업무 커뮤니케이션 패턴
-업무 관련 소통 방식, 보고 스타일, 협업 패턴을 서술하세요.
-
-## 주의사항
-- 메시지에서 명확히 드러나는 내용만 작성하세요
-- 추측이나 과장 없이 사실에 기반하세요
-- 마크다운 코드블록 래퍼(```markdown) 없이 바로 마크다운 내용만 출력하세요
-"""
-
 _PERSONA_SYSTEM = "당신은 팀원 분석 전문가입니다. Slack 메시지를 기반으로 페르소나를 작성합니다."
-
-PERSONA_ANALYSIS_PROMPT = """\
-다음은 한 팀원이 Slack에서 보낸 메시지 목록입니다.
-이 메시지들을 분석해 해당 팀원의 페르소나 프로필(Part B)을 **한국어**로 작성하세요.
-
-## 출력 형식
-
-다음 5개 레이어 구조로 마크다운 문서를 작성하세요:
-
-### Layer 0: 절대 행동 원칙
-이 사람의 non-negotiable한 성격적 특성. 어떤 상황에서도 변하지 않는 핵심 행동 패턴.
-
-### Layer 1: 핵심 정체성
-이 사람이 스스로를 어떻게 인식하는지, 무엇을 중요하게 여기는지.
-
-### Layer 2: 표현 스타일
-말투, 글쓰기 특성, 자주 쓰는 표현, 어투. 가능하면 실제 메시지 패턴을 인용하세요.
-
-### Layer 3: 의사결정 및 문제해결 패턴
-어떻게 문제에 접근하고, 결정을 내리고, 의견을 표현하는지.
-
-### Layer 4: 대인관계 패턴
-다른 사람들과 어떻게 상호작용하는지, 협업 스타일, 갈등 처리 방식.
-
-### 실행 규칙
-이 페르소나로 시뮬레이션할 때 지켜야 할 규칙 목록 (3~5개 불릿).
-
-## 주의사항
-- 메시지에서 명확히 드러나는 패턴만 작성하세요
-- 마크다운 코드블록 래퍼(```markdown) 없이 바로 마크다운 내용만 출력하세요
-"""
 
 
 
@@ -606,23 +549,19 @@ def build_persona_md(analysis: str, display_name: str, model_client) -> str:
 # ── 파일 쓰기 ─────────────────────────────────────────────────────────────────
 
 _slug_lock = threading.Lock()
-# 현재 추출 실행에서 claim된 slug 집합 — _run_extraction 시작 시 초기화.
-# 같은 실행 내 서로 다른 두 멤버가 같은 slug를 가질 때만 _N suffix 부여.
-# 기존 디렉터리(이전 실행 결과)는 재추출 시 덮어씌움.
-_run_claimed_slugs: set[str] = set()
 
 
-def _unique_slug_in_run(slug: str) -> str:
+def _unique_slug_in_run(slug: str, claimed: set[str]) -> str:
     """같은 추출 실행 내에서 이미 claim된 slug에만 _N suffix 부여.
 
     반드시 _slug_lock 보유 상태에서 호출해야 한다.
     """
     candidate = slug
     n = 2
-    while candidate in _run_claimed_slugs:
+    while candidate in claimed:
         candidate = f"{slug}_{n}"
         n += 1
-    _run_claimed_slugs.add(candidate)
+    claimed.add(candidate)
     return candidate
 
 
@@ -634,19 +573,27 @@ def write_profile(
     team_skills_dir: Path,
     role: str = "general",
     raw_messages: list[dict] | None = None,
+    claimed_slugs: set[str] | None = None,
 ) -> Path:
     """팀원 프로필 파일 세트를 team-skills/{slug}/ 에 생성 또는 덮어씀.
 
     같은 추출 실행 내에서 slug가 충돌하면 _2, _3, ... suffix 부여.
     이전 실행으로 생성된 기존 디렉터리는 재추출 시 덮어씌움.
 
+    Args:
+        claimed_slugs: 현재 실행에서 claim된 slug 집합. 제공 시 slug 중복 방지,
+                       None이면 slug를 그대로 사용.
+
     Returns:
         생성된 멤버 디렉터리 Path
     """
-    with _slug_lock:
-        unique = _unique_slug_in_run(slug)
-        member_dir = team_skills_dir / unique
-        member_dir.mkdir(parents=True, exist_ok=True)
+    if claimed_slugs is not None:
+        with _slug_lock:
+            unique = _unique_slug_in_run(slug, claimed_slugs)
+    else:
+        unique = slug
+    member_dir = team_skills_dir / unique
+    member_dir.mkdir(parents=True, exist_ok=True)
 
     # SKILL.md — Part A + Part B 결합
     skill_md = (
@@ -767,6 +714,7 @@ def _process_one_member(
     emit,
     idx: int,
     total: int,
+    claimed_slugs: set[str] | None = None,
 ) -> None:
     """단일 팀원의 전체 추출 파이프라인 (스레드 안전)."""
     user_id = member["user_id"]
@@ -831,7 +779,7 @@ def _process_one_member(
     try:
         member_dir = write_profile(
             slug, display_name, part_a, part_b, team_skills_dir,
-            role=role, raw_messages=messages,
+            role=role, raw_messages=messages, claimed_slugs=claimed_slugs,
         )
     except Exception as e:
         emit({"type": "error", "message": f"{slug}: 파일 저장 실패 — {e}", "slug": slug})
@@ -865,9 +813,8 @@ def _run_extraction(
     def emit(event: dict) -> None:
         q.put(event)
 
-    # 이번 실행의 slug claim 집합 초기화 — 재추출 시 덮어쓰기 허용
-    with _slug_lock:
-        _run_claimed_slugs.clear()
+    # 이번 실행의 slug claim 집합 — 실행 단위 격리
+    claimed_slugs: set[str] = set()
 
     try:
         max_workers = min(total, 3)
@@ -879,7 +826,7 @@ def _run_extraction(
                     _process_one_member,
                     member, token, channels, model_client,
                     team_skills_dir, max_collect, max_messages,
-                    emit, idx, total,
+                    emit, idx, total, claimed_slugs,
                 )
                 future_to_member[fut] = (member, idx)
 
@@ -907,7 +854,7 @@ def _run_extraction(
                     result = _process_one_member(
                         member, token, channels, retry_client,
                         team_skills_dir, max_collect, max_messages,
-                        emit, idx, total,
+                        emit, idx, total, claimed_slugs,
                     )
                     if result is not None:
                         summaries_input.append(result)
