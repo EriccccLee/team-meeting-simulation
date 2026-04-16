@@ -113,6 +113,14 @@
           </div>
           <div class="h-right">
             <span class="h-date">{{ formatDate(h.timestamp) }}</span>
+            <button
+              class="h-ref"
+              :disabled="attachedSessionIds.has(h.session_id)"
+              @click.stop="attachHistoryRef(h.session_id, h.topic)"
+              title="이 회의를 참조 자료로 첨부"
+            >
+              {{ attachedSessionIds.has(h.session_id) ? '첨부됨' : '참조' }}
+            </button>
             <button class="h-del" @click.stop="deleteHistory(h.session_id)" title="삭제">×</button>
           </div>
         </li>
@@ -123,10 +131,11 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { formatDate } from '../utils/format'
 import { useMeetingStore } from '../stores/meeting'
 
+const route = useRoute()
 const router = useRouter()
 const store = useMeetingStore()
 
@@ -150,6 +159,7 @@ const isDragging = ref(false)
 const fileInput = ref<HTMLInputElement | null>(null)
 const emptyRedirectMsg = ref('')
 const historyError = ref(false)
+const attachedSessionIds = ref<Set<string>>(new Set())
 
 const canStart = computed(() => topic.value.trim() && selectedSlugs.value.length > 0)
 
@@ -184,6 +194,16 @@ onMounted(async () => {
     historyList.value = await res.json()
   } catch (_) {
     historyError.value = true
+  }
+
+  // ref 쿼리 파라미터로 전달된 이전 회의 자동 첨부
+  const refId = route.query.ref as string | undefined
+  if (refId && historyList.value.length) {
+    const target = historyList.value.find(h => h.session_id === refId)
+    if (target) {
+      await attachHistoryRef(refId, target.topic)
+    }
+    router.replace('/')
   }
 })
 
@@ -221,6 +241,22 @@ function onFileChange(e: Event): void {
 }
 function removeFile(i: number): void {
   files.value.splice(i, 1)
+}
+
+async function attachHistoryRef(sessionId: string, topicText: string): Promise<void> {
+  if (attachedSessionIds.value.has(sessionId)) return
+  try {
+    const res = await fetch(`/api/history/${sessionId}/markdown`)
+    if (!res.ok) throw new Error()
+    const md = await res.text()
+    const truncated = topicText.replace(/\r?\n/g, ' ').slice(0, 20)
+    const filename = `[이전회의] ${truncated}.md`
+    const file = new File([md], filename, { type: 'text/markdown' })
+    files.value.push(file)
+    attachedSessionIds.value.add(sessionId)
+  } catch (_) {
+    error.value = '회의 자료를 불러오지 못했습니다.'
+  }
 }
 
 async function startSimulation(): Promise<void> {
@@ -455,6 +491,21 @@ async function startSimulation(): Promise<void> {
   font-size: 16px; color: var(--gray-400); line-height: 1; padding: 0 4px;
 }
 .h-del:hover { color: #DC2626; }
+.h-ref {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  padding: 3px 8px;
+  border: 1px solid var(--gray-200);
+  border-radius: 3px;
+  background: none;
+  color: var(--gray-600);
+  cursor: pointer;
+  transition: border-color 0.2s, color 0.2s;
+}
+.h-ref:hover:not(:disabled) { border-color: var(--orange); color: var(--orange); }
+.h-ref:disabled { color: var(--gray-400); cursor: default; border-color: var(--gray-200); background: var(--gray-50); }
 
 /* 빈 참여자 상태 */
 .empty-state {
