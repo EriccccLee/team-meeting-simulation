@@ -49,19 +49,26 @@
       <section class="right">
         <div class="field">
           <label class="field-label">참여자</label>
+          <div v-if="emptyRedirectMsg" class="redirect-banner">{{ emptyRedirectMsg }}</div>
           <div v-if="loadingParticipants" class="loading-text">불러오는 중...</div>
-          <ul v-else class="participant-list">
-            <li v-for="p in store.participants" :key="p.slug" class="participant-item">
-              <label class="participant-label">
-                <input type="checkbox" :value="p.slug" v-model="selectedSlugs" />
-                <span class="p-avatar" :style="{ background: p.color }">
-                  {{ p.name.slice(0, 2) }}
-                </span>
-                <span class="p-name">{{ p.name }}</span>
-                <span class="tag">{{ p.slug }}</span>
-              </label>
-            </li>
-          </ul>
+          <template v-else>
+            <div v-if="store.participants.length === 0 && !emptyRedirectMsg" class="empty-state">
+              <p>아직 추출된 팀원이 없습니다.</p>
+              <p>슬랙 메시지 추출을 먼저 진행해주세요.</p>
+            </div>
+            <ul v-else class="participant-list">
+              <li v-for="p in store.participants" :key="p.slug" class="participant-item">
+                <label class="participant-label">
+                  <input type="checkbox" :value="p.slug" v-model="selectedSlugs" />
+                  <span class="p-avatar" :style="{ background: p.color }">
+                    {{ p.name.slice(0, 2) }}
+                  </span>
+                  <span class="p-name">{{ p.name }}</span>
+                  <span class="tag">{{ p.slug }}</span>
+                </label>
+              </li>
+            </ul>
+          </template>
         </div>
 
         <div class="field field-inline">
@@ -81,10 +88,16 @@
       >
         {{ isSubmitting ? '시뮬레이션 시작 중...' : '시뮬레이션 시작 ──────────' }}
       </button>
-      <p class="estimate" v-if="canStart">예상 소요 시간: 약 {{ estimatedMinutes }}분</p>
+      <p class="estimate" v-if="canStart">
+        예상 소요 시간: 약 {{ estimatedMinutes }}분
+        <span class="time-note">※ 첨부 파일이 있을 경우 추가 시간이 소요될 수 있습니다</span>
+      </p>
     </footer>
 
     <!-- 회의 기록 -->
+    <div v-if="historyError" class="error-hint">
+      이전 회의 기록을 불러오지 못했습니다.
+    </div>
     <section v-if="historyList.length" class="history-section">
       <p class="history-label">HISTORY</p>
       <ul class="history-list">
@@ -109,7 +122,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { formatDate } from '../utils/format'
 import { useMeetingStore } from '../stores/meeting'
@@ -135,6 +148,8 @@ const isSubmitting = ref(false)
 const error = ref('')
 const isDragging = ref(false)
 const fileInput = ref<HTMLInputElement | null>(null)
+const emptyRedirectMsg = ref('')
+const historyError = ref(false)
 
 const canStart = computed(() => topic.value.trim() && selectedSlugs.value.length > 0)
 
@@ -143,12 +158,15 @@ const estimatedMinutes = computed(() => {
   return Math.ceil(calls * 30 / 60)
 })
 
+let redirectTimer: ReturnType<typeof setTimeout> | null = null
+
 onMounted(async () => {
   try {
     await store.fetchParticipants()
     selectedSlugs.value = store.participants.map(p => p.slug)
     if (store.participants.length === 0) {
-      router.push('/extract')
+      emptyRedirectMsg.value = '추출된 팀원이 없습니다. 슬랙 메시지 추출 페이지로 이동합니다.'
+      redirectTimer = setTimeout(() => router.push('/extract'), 1500)
       return
     }
   } catch (e) {
@@ -159,8 +177,18 @@ onMounted(async () => {
 
   try {
     const res = await fetch('/api/history')
+    if (!res.ok) {
+      historyError.value = true
+      return
+    }
     historyList.value = await res.json()
-  } catch (_) {}
+  } catch (_) {
+    historyError.value = true
+  }
+})
+
+onUnmounted(() => {
+  if (redirectTimer !== null) clearTimeout(redirectTimer)
 })
 
 function participantNames(slugs: string[]): string {
@@ -427,4 +455,44 @@ async function startSimulation(): Promise<void> {
   font-size: 16px; color: var(--gray-400); line-height: 1; padding: 0 4px;
 }
 .h-del:hover { color: #DC2626; }
+
+/* 빈 참여자 상태 */
+.empty-state {
+  padding: 16px 0;
+  color: var(--gray-400);
+  font-size: 13px;
+  line-height: 1.8;
+}
+.empty-state p { margin: 0; }
+
+/* 추출 페이지 리다이렉트 배너 */
+.redirect-banner {
+  padding: 10px 14px;
+  background: #fff8f2;
+  border: 1px solid var(--orange);
+  border-radius: 4px;
+  font-size: 13px;
+  color: var(--orange);
+  margin-bottom: 12px;
+}
+
+/* 기록 불러오기 오류 힌트 */
+.error-hint {
+  padding: 10px 14px;
+  background: #fef2f2;
+  border: 1px solid #fca5a5;
+  border-radius: 4px;
+  font-size: 13px;
+  color: #DC2626;
+  margin-bottom: 8px;
+}
+
+/* 예상 시간 부가 설명 */
+.time-note {
+  display: block;
+  font-size: 10px;
+  color: var(--gray-400);
+  letter-spacing: 0.02em;
+  margin-top: 3px;
+}
 </style>

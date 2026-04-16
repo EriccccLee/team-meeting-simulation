@@ -31,6 +31,8 @@ export const useMeetingStore = defineStore('meeting', () => {
 
   function invalidate(): void {
     loaded.value = false
+    participants.value = []
+    topic.value = ''
   }
 
   return { participants, topic, loaded, fetchParticipants, colorOf, nameOf, invalidate }

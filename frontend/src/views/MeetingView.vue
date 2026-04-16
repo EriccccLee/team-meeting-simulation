@@ -21,10 +21,10 @@
         </div>
 
         <!-- 파일 전처리 진행 상황 -->
-        <div v-if="preprocessingFiles.length" class="preprocessing-panel fade-in-up">
+        <div v-if="preprocessingFiles.length || preprocessError" class="preprocessing-panel fade-in-up">
           <p class="pre-title">
-            <span class="pre-spinner" v-if="isPreprocessing" />
-            {{ isPreprocessing ? '파일 변환 중...' : '파일 변환 완료' }}
+            <span class="pre-spinner" v-if="isPreprocessing && !preprocessError" />
+            {{ preprocessError ? '파일 변환 오류' : isPreprocessing ? '파일 변환 중...' : '파일 변환 완료' }}
           </p>
           <ul class="pre-list">
             <li v-for="f in preprocessingFiles" :key="f.filename" class="pre-item">
@@ -32,6 +32,8 @@
               <span class="pre-msg">{{ f.message }}</span>
             </li>
           </ul>
+          <!-- Fix 2: Show preprocessing error message -->
+          <p v-if="preprocessError" class="pre-error">{{ preprocessError }}</p>
         </div>
 
         <template v-for="(item, i) in feed" :key="i">
@@ -87,7 +89,6 @@ const route = useRoute()
 const router = useRouter()
 const store = useMeetingStore()
 
-const sessionId = route.query.session as string | undefined
 const feed = ref<FeedItem[]>([])
 const activeSpeaker = ref('')
 const currentPhase = ref(0)
@@ -96,10 +97,14 @@ const isDone = ref(false)
 const hasError = ref(false)
 const chatArea = ref<HTMLElement | null>(null)
 const preprocessingFiles = ref<PreprocessingFile[]>([])
+const preprocessError = ref<string | null>(null)
 const isPreprocessing = computed(() => preprocessingFiles.value.some(f => !f.done))
 const attachedFiles = ref<string[]>([])
 
-let es: EventSource | null = null
+// Fix 1: SSE EventSource as a ref so it is trackable across all exit paths
+const es = ref<EventSource | null>(null)
+
+let preprocessTimeout: ReturnType<typeof setTimeout> | null = null
 
 const statusClass = computed(() => {
   if (hasError.value) return 'error'
@@ -130,7 +135,13 @@ async function scrollToBottom(): Promise<void> {
 }
 
 onMounted(async () => {
-  if (!sessionId) { router.push('/'); return }
+  // Fix 3: Validate session query parameter before doing anything
+  const rawSession = route.query.session
+  const sessionId = typeof rawSession === 'string' ? rawSession.trim() : ''
+  if (!sessionId) {
+    router.push('/')
+    return
+  }
 
   try {
     await store.fetchParticipants()
@@ -140,9 +151,20 @@ onMounted(async () => {
   }
 
   if (hasError.value) return
-  es = new EventSource(`/api/stream/${sessionId}`)
 
-  es.onmessage = async (e: MessageEvent) => {
+  // Fix 1: Close any pre-existing connection before creating a new one
+  if (es.value) { es.value.close(); es.value = null }
+  es.value = new EventSource(`/api/stream/${sessionId}`)
+
+  // Fix 2: Safety timeout — if preprocessing takes more than 120s, show an error
+  preprocessTimeout = setTimeout(() => {
+    if (preprocessingFiles.value.some(f => !f.done)) {
+      preprocessError.value = '파일 변환 시간이 초과되었습니다. 파일 형식을 확인해주세요.'
+    }
+    preprocessTimeout = null
+  }, 120000)
+
+  es.value.onmessage = async (e: MessageEvent) => {
     const event = JSON.parse(e.data) as Record<string, unknown>
 
     if (event.type === 'preprocessing') {
@@ -160,6 +182,15 @@ onMounted(async () => {
       if (!attachedFiles.value.includes(event.filename as string)) {
         attachedFiles.value.push(event.filename as string)
       }
+      // Clear the preprocessing timeout once all files are done
+      if (!isPreprocessing.value && preprocessTimeout !== null) {
+        clearTimeout(preprocessTimeout)
+        preprocessTimeout = null
+      }
+    } else if (event.type === 'preprocessing_error') {
+      // Fix 2: Surface preprocessing errors sent by the backend
+      preprocessError.value = (event.message as string | undefined) ?? '파일 변환 중 오류가 발생했습니다.'
+      if (preprocessTimeout !== null) { clearTimeout(preprocessTimeout); preprocessTimeout = null }
     } else if (event.type === 'phase') {
       const label = event.label as string
       currentPhase.value = parseInt(label.match(/\d+/)?.[0] || '0')
@@ -192,38 +223,46 @@ onMounted(async () => {
       hasError.value = true
       feed.value.push({ type: 'moderator', content: `[오류] ${event.message}` })
     } else if (event.type === 'end') {
-      es?.close()
+      // Fix 1: Null out the ref after closing
+      if (es.value) { es.value.close(); es.value = null }
     }
 
     await scrollToBottom()
   }
 
-  es.onerror = () => {
+  es.value.onerror = () => {
     if (!isDone.value) {
       hasError.value = true
       isRunning.value = false
     }
-    es?.close()
+    // Fix 1: Null out the ref after closing so it doesn't linger
+    if (es.value) { es.value.close(); es.value = null }
   }
 })
 
 onUnmounted(() => {
-  es?.close()
+  // Fix 1: Clean up SSE connection on unmount
+  if (es.value) { es.value.close(); es.value = null }
+  // Fix 2: Clear preprocessing timeout on unmount
+  if (preprocessTimeout !== null) { clearTimeout(preprocessTimeout); preprocessTimeout = null }
 })
 
 function startNewMeeting(): void {
-  es?.close()
+  // Fix 1: Close SSE before navigating away
+  if (es.value) { es.value.close(); es.value = null }
   store.topic = ''
   router.push('/')
 }
 
 async function cancelMeeting(): Promise<void> {
   if (!confirm('진행 중인 시뮬레이션을 중단하시겠습니까?')) return
+  const sessionId = typeof route.query.session === 'string' ? route.query.session.trim() : ''
   try {
-    await fetch(`/api/stream/${sessionId}`, { method: 'DELETE' })
+    if (sessionId) await fetch(`/api/stream/${sessionId}`, { method: 'DELETE' })
   } catch (_) {}
   isDone.value = true
-  es?.close()
+  // Fix 1: Close SSE in cancel path
+  if (es.value) { es.value.close(); es.value = null }
   isRunning.value = false
   router.push('/')
 }
@@ -263,6 +302,7 @@ async function cancelMeeting(): Promise<void> {
 .pre-check { font-family: var(--font-mono); font-size: 11px; color: var(--gray-400); width: 14px; flex-shrink: 0; }
 .pre-check.done { color: #16A34A; }
 .pre-msg { flex: 1; }
+.pre-error { margin-top: 8px; font-size: 12px; color: #DC2626; font-family: var(--font-mono); }
 
 /* 타이핑 인디케이터 */
 .typing-indicator {

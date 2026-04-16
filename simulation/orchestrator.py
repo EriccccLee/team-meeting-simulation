@@ -99,12 +99,20 @@ class MeetingOrchestrator:
         # 순차 실행: 각 에이전트 응답이 완료되는 즉시 stream_message 호출
         # (병렬 실행 시 전원 완료 후 일괄 emit되어 스트리밍 UX가 깨짐)
         for i, agent in enumerate(self.agents):
+            if self._cancel_check():
+                logger.info("시뮬레이션 취소 요청 — Phase 1 조기 종료")
+                return
             response = self._call_agent(agent, topic, self.history, instruction, skip_delay=(i == 0))
             if response:
                 self.session.stream_message(agent.config.name, response, agent.config.slug)
                 self._add_agent(agent, response, phase=1)
 
     def _phase2(self, topic: str) -> None:
+        if len(self.agents) <= 1:
+            # 참여자가 1명이면 자유 토론을 건너뜁니다 (화자 순환 불가)
+            self.session.stream_phase("Phase 2: 자유 토론 (참여자 1명 — 건너뜀)")
+            return
+
         self.session.stream_phase("Phase 2: 자유 토론")
 
         transition = self._call_moderator("announce_phase", phase=2, history=self.history, skip_delay=True)
@@ -133,6 +141,10 @@ class MeetingOrchestrator:
                 logger.warning("선택된 slug %r 가 참여자 목록에 없습니다 — 건너뜁니다", slug)
                 continue
 
+            if self._cancel_check():
+                logger.info("시뮬레이션 취소 요청 — Phase 2 에이전트 호출 전 조기 종료")
+                return
+
             response = self._call_agent(agent, topic, self.history, instruction, skip_delay=first_agent_call)
             first_agent_call = False
             if response:
@@ -151,6 +163,9 @@ class MeetingOrchestrator:
             "최종 입장을 밝혀주세요: 동의/수정 요청/반대 중 하나와 이유를 말해주세요."
         )
         for i, agent in enumerate(self.agents):
+            if self._cancel_check():
+                logger.info("시뮬레이션 취소 요청 — Phase 3 조기 종료")
+                return ""
             response = self._call_agent(agent, topic, self.history, instruction, skip_delay=(i == 0))
             if response:
                 self.session.stream_message(agent.config.name, response, agent.config.slug)

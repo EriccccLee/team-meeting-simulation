@@ -15,6 +15,7 @@ import queue as stdlib_queue
 import re
 import sys
 import tempfile
+import time
 import uuid
 from pathlib import Path
 from typing import Annotated
@@ -47,6 +48,19 @@ _sessions: dict[str, stdlib_queue.SimpleQueue] = {}
 
 # session_id → bool — True이면 시뮬레이션을 조기 종료
 _cancel_flags: dict[str, bool] = {}
+
+# session_id → float (time.time()) — 세션 생성 시각
+_session_timestamps: dict[str, float] = {}
+
+
+def _cleanup_stale_sessions(max_age_seconds: int = 7200) -> None:
+    """2시간 이상 경과한 세션을 메모리에서 제거합니다."""
+    now = time.time()
+    stale = [sid for sid, ts in _session_timestamps.items() if now - ts > max_age_seconds]
+    for sid in stale:
+        _sessions.pop(sid, None)
+        _cancel_flags.pop(sid, None)
+        _session_timestamps.pop(sid, None)
 
 
 # ── 파일 포맷 변환 헬퍼 ───────────────────────────────────────────────────────
@@ -305,6 +319,7 @@ def _run_simulation(
         emit({"type": "error", "message": str(e)})
     finally:
         _cancel_flags.pop(session_id, None)
+        _session_timestamps.pop(session_id, None)
         q.put(None)  # sentinel — SSE generator 종료 신호
 
 
@@ -318,9 +333,12 @@ async def run_simulation(
     files: list[UploadFile] = File(default=[]),
 ) -> dict:
     """session_id 를 즉시 반환합니다. 파일 전처리 + 시뮬레이션은 백그라운드 스레드에서 실행됩니다."""
+    _cleanup_stale_sessions()
+
     session_id = str(uuid.uuid4())
     q: stdlib_queue.SimpleQueue = stdlib_queue.SimpleQueue()
     _sessions[session_id] = q
+    _session_timestamps[session_id] = time.time()
 
     # 파일 bytes 를 async 컨텍스트에서 읽고 나머지는 스레드에 위임
     raw_files: list[tuple[str, bytes]] = []
@@ -371,6 +389,7 @@ async def stream_events(session_id: str) -> StreamingResponse:
                 await asyncio.sleep(0)  # 이벤트 루프에 제어권 반환 → uvicorn TCP flush
         finally:
             _sessions.pop(session_id, None)
+            _session_timestamps.pop(session_id, None)
 
     return StreamingResponse(
         generate(),

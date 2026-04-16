@@ -104,7 +104,17 @@
 
     <!-- Step 3: 추출 진행 중 (SSE) -->
     <main v-else-if="step === 3" class="main step3">
-      <p class="section-label">추출 진행 중 ({{ doneCount }}/{{ members.length }})</p>
+      <div class="step3-header">
+        <p class="section-label">추출 진행 중 ({{ doneCount }}/{{ members.length }})</p>
+        <button
+          v-if="!isDone && !isCancelled"
+          class="btn btn-cancel"
+          @click="cancelExtraction"
+        >추출 중단</button>
+      </div>
+      <div v-if="isCancelled" class="cancel-msg">
+        추출이 중단되었습니다. 페이지를 새로고침하여 다시 시도할 수 있습니다.
+      </div>
       <div
         v-for="m in members"
         :key="m.slug"
@@ -145,7 +155,12 @@
       <p v-if="globalError" class="global-error">{{ globalError }}</p>
 
       <div v-if="isDone" class="done-banner">
-        ✓ 모든 팀원 스킬 추출 완료! 잠시 후 메인 화면으로 이동합니다...
+        <p>모든 팀원 스킬 추출 완료!</p>
+        <p class="countdown-hint">{{ countdown > 0 ? `${countdown}초 후 메인 화면으로 이동합니다` : '이동이 취소되었습니다.' }}</p>
+        <div class="done-actions">
+          <button class="btn-primary" @click="router.push('/')">지금 이동</button>
+          <button class="btn-secondary" @click="cancelRedirect" :disabled="countdown === 0">여기서 더 보기</button>
+        </div>
       </div>
     </main>
   </div>
@@ -188,6 +203,9 @@ interface Member {
 const router = useRouter()
 const store = useMeetingStore()
 
+// ── SSE 연결 핸들 (언마운트 시 정리) ──────────────────────────────────────────
+const activeES = ref<EventSource | null>(null)
+
 // ── 상태 ──────────────────────────────────────────────────────────────────────
 const step = ref<1 | 2 | 3>(1)
 const candidates = ref<Candidate[]>([])
@@ -203,6 +221,13 @@ const discoverError = ref<string>('')
 const extractError = ref<string>('')
 const globalError = ref<string>('')
 
+// Fix 3: 취소 상태
+const isCancelled = ref<boolean>(false)
+
+// Fix 2: 리다이렉트 카운트다운
+const countdown = ref<number>(3)
+const redirectTimer = ref<ReturnType<typeof setInterval> | null>(null)
+
 // 추출 설정 (프론트에서 조정 가능)
 const maxCollect = ref<number>(2000)
 const maxMessages = ref<number>(300)
@@ -213,7 +238,17 @@ const canExtract = computed(() => selectedIds.value.length > 0)
 const now = ref<number>(Date.now())
 let timerHandle: ReturnType<typeof setInterval> | null = null
 onMounted(() => { timerHandle = setInterval(() => { now.value = Date.now() }, 1000) })
-onUnmounted(() => { if (timerHandle) clearInterval(timerHandle) })
+onUnmounted(() => {
+  if (timerHandle) clearInterval(timerHandle)
+  if (activeES.value) {
+    activeES.value.close()
+    activeES.value = null
+  }
+  if (redirectTimer.value) {
+    clearInterval(redirectTimer.value)
+    redirectTimer.value = null
+  }
+})
 
 // ── Step 1: 탐색 ──────────────────────────────────────────────────────────────
 async function doDiscover(): Promise<void> {
@@ -257,6 +292,14 @@ async function doExtract(): Promise<void> {
   const selected = candidates.value.filter(c =>
     selectedIds.value.includes(c.user_id)
   )
+
+  // Fix 4: 빈 슬러그 검사
+  const emptySlug = selected.find(c => !c.editedSlug.trim())
+  if (emptySlug) {
+    extractError.value = `'${emptySlug.display_name}'의 슬러그가 비어있습니다. 슬러그를 입력해주세요.`
+    isExtracting.value = false
+    return
+  }
   const body = selected.map(c => ({
     user_id: c.user_id,
     slug: c.editedSlug || c.suggested_slug,
@@ -309,12 +352,14 @@ async function doExtract(): Promise<void> {
 // ── Step 3: SSE 구독 ──────────────────────────────────────────────────────────
 function subscribeSSE(sessionId: string): void {
   const es = new EventSource(`/api/slack/stream/${sessionId}`)
+  activeES.value = es
 
   es.onmessage = (event: MessageEvent) => {
     const data = JSON.parse(event.data) as Record<string, unknown>
 
     if (data.type === 'end') {
       es.close()
+      activeES.value = null
       return
     }
 
@@ -359,7 +404,15 @@ function subscribeSSE(sessionId: string): void {
       }
       isDone.value = true
       store.invalidate()
-      setTimeout(() => router.push('/'), 3000)
+      countdown.value = 3
+      redirectTimer.value = setInterval(() => {
+        countdown.value--
+        if (countdown.value <= 0) {
+          clearInterval(redirectTimer.value!)
+          redirectTimer.value = null
+          router.push('/')
+        }
+      }, 1000)
 
     } else if (data.type === 'retry_member') {
       // 실패 후 재시도 — 해당 멤버 UI 상태 초기화
@@ -381,7 +434,26 @@ function subscribeSSE(sessionId: string): void {
     }
   }
 
-  es.onerror = () => es.close()
+  es.onerror = () => {
+    es.close()
+    activeES.value = null
+  }
+}
+
+// Fix 2: 리다이렉트 취소
+function cancelRedirect(): void {
+  if (redirectTimer.value) {
+    clearInterval(redirectTimer.value)
+    redirectTimer.value = null
+  }
+  countdown.value = 0
+}
+
+// Fix 3: SSE 추출 중단
+function cancelExtraction(): void {
+  activeES.value?.close()
+  activeES.value = null
+  isCancelled.value = true
 }
 
 function sanitizeSlug(c: Candidate): void {
@@ -679,4 +751,84 @@ function completeStep(member: Member, key: string): void {
   text-align: right;
 }
 .limit-input:focus { outline: none; border-color: var(--black); }
+
+/* ── Fix 2: done-banner 하위 요소 ─────────────────────────────────────────── */
+.done-banner p {
+  margin: 0 0 8px;
+  font-size: 14px;
+  color: #15803D;
+  font-weight: 500;
+}
+.countdown-hint {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: #16A34A;
+  margin: 0 0 14px !important;
+}
+.done-actions {
+  display: flex;
+  gap: 8px;
+}
+.btn-primary {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.05em;
+  background: #15803D;
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  padding: 8px 16px;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+.btn-primary:hover { opacity: 0.85; }
+.btn-secondary {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.05em;
+  background: none;
+  color: #15803D;
+  border: 1px solid #16A34A;
+  border-radius: 4px;
+  padding: 8px 16px;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+.btn-secondary:hover:not(:disabled) { border-color: #15803D; color: #14532D; }
+.btn-secondary:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* ── Fix 3: 중단 버튼 & 취소 메시지 ────────────────────────────────────────── */
+.step3-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0;
+}
+.step3-header .section-label { margin-bottom: 16px; }
+.btn-cancel {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.05em;
+  background: none;
+  color: #DC2626;
+  border: 1px solid #DC2626;
+  border-radius: 4px;
+  padding: 5px 12px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+  align-self: flex-start;
+}
+.btn-cancel:hover { background: #DC2626; color: #fff; }
+.cancel-msg {
+  margin-bottom: 16px;
+  padding: 12px 16px;
+  background: #FFF5F5;
+  border: 1px solid #FCA5A5;
+  border-radius: 4px;
+  font-size: 13px;
+  color: #DC2626;
+}
 </style>

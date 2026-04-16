@@ -151,6 +151,9 @@ async def slack_stream(session_id: str) -> StreamingResponse:
                 data = json.dumps(event, ensure_ascii=False)
                 yield f"data: {data}\n\n"
                 await asyncio.sleep(0)  # 이벤트 루프에 제어권 반환 → uvicorn TCP flush
+        except Exception as e:
+            yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
+            raise
         finally:
             _sessions.pop(session_id, None)
 

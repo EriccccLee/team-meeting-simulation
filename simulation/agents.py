@@ -154,6 +154,10 @@ class ModeratorAgent:
         exclude: 직전 발언자 slug — 이 사람은 선택하지 않음.
         파싱 실패 시 참여자 중 랜덤 선택으로 fallback.
         """
+        if len(self.participant_slugs) <= 1:
+            # 참여자가 1명이면 순환 없이 바로 반환
+            return self.participant_slugs[0]
+
         available = [s for s in self.participant_slugs if s != exclude]
         if not available:
             available = list(self.participant_slugs)  # 전원이 exclude되면 무시
