@@ -32,6 +32,10 @@
             :color="store.colorOf(item.slug ?? '')"
           />
         </template>
+
+        <div class="followup-area">
+          <button class="btn followup-btn" @click="startFollowUp">후속 회의 시작</button>
+        </div>
       </div>
     </main>
   </div>
@@ -109,7 +113,30 @@ onMounted(async () => {
     loading.value = false
   }
 })
+
+function startFollowUp(): void {
+  router.push({ path: '/', query: { ref: route.params.sessionId as string } })
+}
 </script>
 
 <style scoped>
+.followup-area {
+  display: flex;
+  justify-content: center;
+  padding: 24px 0 16px;
+}
+.followup-btn {
+  background: var(--black);
+  color: var(--white);
+  border: 1px solid var(--black);
+  padding: 10px 24px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.2s, border-color 0.2s;
+}
+.followup-btn:hover { background: var(--orange); border-color: var(--orange); }
 </style>

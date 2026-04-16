@@ -56,6 +56,10 @@
         <div v-if="isRunning" class="cancel-area">
           <button class="cancel-btn" @click="cancelMeeting">회의 중단</button>
         </div>
+
+        <div v-if="isDone && !hasError" class="followup-area fade-in-up">
+          <button class="btn followup-btn" @click="startFollowUp">후속 회의 시작</button>
+        </div>
       </div>
     </main>
   </div>
@@ -266,6 +270,12 @@ async function cancelMeeting(): Promise<void> {
   isRunning.value = false
   router.push('/')
 }
+
+function startFollowUp(): void {
+  if (es.value) { es.value.close(); es.value = null }
+  const sessionId = typeof route.query.session === 'string' ? route.query.session.trim() : ''
+  router.push({ path: '/', query: { ref: sessionId } })
+}
 </script>
 
 <style scoped>
@@ -340,4 +350,25 @@ async function cancelMeeting(): Promise<void> {
   transition: border-color 0.2s, color 0.2s;
 }
 .cancel-btn:hover { border-color: #DC2626; color: #DC2626; }
+
+/* 후속 회의 버튼 */
+.followup-area {
+  display: flex;
+  justify-content: center;
+  padding: 24px 0 16px;
+}
+.followup-btn {
+  background: var(--black);
+  color: var(--white);
+  border: 1px solid var(--black);
+  padding: 10px 24px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.2s, border-color 0.2s;
+}
+.followup-btn:hover { background: var(--orange); border-color: var(--orange); }
 </style>
