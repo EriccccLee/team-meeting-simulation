@@ -73,7 +73,6 @@ class ExtractMember(BaseModel):
     user_id: str
     slug: str
     display_name: str
-    role: str = "general"
     impression: str = ""
 
     @field_validator("slug")
@@ -83,13 +82,6 @@ class ExtractMember(BaseModel):
         if not sanitized:
             raise ValueError("slug must contain at least one alphanumeric character")
         return sanitized
-
-    @field_validator("role")
-    @classmethod
-    def role_must_be_valid(cls, v: str) -> str:
-        # Tolerant: unknown roles fall back to "general" rather than rejecting the request.
-        valid = {"backend", "frontend", "ml", "pm", "data", "general"}
-        return v if v in valid else "general"
 
 
 class ExtractRequest(BaseModel):

@@ -495,6 +495,45 @@ def test_build_persona_md_formats_with_name():
     assert "페르소나 분석 결과" in call_kwargs
 
 
+def test_infer_role_returns_valid_role():
+    """LLM이 유효한 역할 키워드를 반환하면 그대로 사용한다."""
+    from simulation.slack_collector import infer_role
+
+    messages = [{"content": "API 설계했어요", "ts": "1", "channel": "C001", "is_thread_starter": False}]
+    mock_client = MagicMock()
+    mock_client.call.return_value = "backend"
+
+    result = infer_role(messages, mock_client, sample_size=5)
+
+    assert result == "backend"
+
+
+def test_infer_role_falls_back_to_general_on_unknown():
+    """LLM이 알 수 없는 값을 반환하면 'general'로 폴백한다."""
+    from simulation.slack_collector import infer_role
+
+    messages = [{"content": "안녕하세요", "ts": "1", "channel": "C001", "is_thread_starter": False}]
+    mock_client = MagicMock()
+    mock_client.call.return_value = "engineer"  # 유효하지 않은 값
+
+    result = infer_role(messages, mock_client, sample_size=5)
+
+    assert result == "general"
+
+
+def test_infer_role_falls_back_to_general_on_exception():
+    """LLM 호출 실패 시 'general'로 폴백한다."""
+    from simulation.slack_collector import infer_role
+
+    messages = [{"content": "안녕하세요", "ts": "1", "channel": "C001", "is_thread_starter": False}]
+    mock_client = MagicMock()
+    mock_client.call.side_effect = RuntimeError("API error")
+
+    result = infer_role(messages, mock_client, sample_size=5)
+
+    assert result == "general"
+
+
 def test_extract_work_patterns_appends_role_prompt():
     """role='backend'이면 역할별 추가 프롬프트가 포함된다."""
     messages = [

@@ -687,6 +687,48 @@ def write_profile(
     return member_dir
 
 
+# ── 역할 자동 추론 ───────────────────────────────────────────────────────────
+
+_ROLE_INFER_SYSTEM = "당신은 Slack 메시지를 보고 팀원의 직무 역할을 판단하는 전문가입니다."
+
+_ROLE_INFER_PROMPT = """\
+아래는 팀원의 Slack 메시지 샘플입니다. 이 사람의 주요 직무를 다음 중 **하나의 영문 키워드**로만 답하세요:
+
+backend, frontend, ml, pm, data, general
+
+판단 기준:
+- backend: 서버 API, DB, 인프라, Docker, 배포 관련 발언
+- frontend: UI, 컴포넌트, 웹, React/Vue 관련 발언
+- ml: 모델, 학습, 임베딩, 파이프라인, AI/ML 관련 발언
+- pm: 기획, 스펙, 로드맵, 우선순위 관련 발언
+- data: SQL, 분석, 지표, 대시보드 관련 발언
+- general: 위 카테고리에 해당하지 않거나 불명확한 경우
+
+단어 하나만 출력하세요.
+
+## 메시지 샘플
+{messages}"""
+
+_ROLE_INFER_VALID = {"backend", "frontend", "ml", "pm", "data", "general"}
+
+
+def infer_role(messages: list[dict], model_client, sample_size: int = 40) -> str:
+    """메시지 샘플로 직무 역할을 자동 추론. 실패 시 'general' 반환."""
+    sample = messages[:sample_size]
+    msg_block = _format_messages_for_llm(sample, max_messages=sample_size)
+    prompt = _ROLE_INFER_PROMPT.format(messages=msg_block)
+    try:
+        result = model_client.call(
+            system_prompt=_ROLE_INFER_SYSTEM,
+            messages=[{"slug": "user", "speaker": "user", "content": prompt}],
+        )
+        role = result.strip().lower().split()[0] if result.strip() else "general"
+        return role if role in _ROLE_INFER_VALID else "general"
+    except Exception as e:
+        logger.warning("역할 추론 실패 — 'general' 사용: %s", e)
+        return "general"
+
+
 # ── 추출 오케스트레이터 ───────────────────────────────────────────────────────
 
 _PERSONA_SUMMARY_SYSTEM = "당신은 팀원 소개 전문가입니다."
@@ -727,7 +769,6 @@ def _process_one_member(
     user_id = member["user_id"]
     slug = member["slug"]
     display_name = member["display_name"]
-    role = member.get("role", "general")
     impression = member.get("impression", "")
 
     # 1. 메시지 수집
@@ -743,6 +784,10 @@ def _process_one_member(
     if not messages:
         emit({"type": "error", "message": f"{slug}: 필터링 후 메시지가 없습니다.", "slug": slug})
         return
+
+    # 1-b. 역할 자동 추론 (메시지 샘플 기반, 빠른 LLM 호출)
+    role = infer_role(messages, model_client)
+    logger.info("[%s] 자동 추론 역할: %s", slug, role)
 
     # 2. Stage 1 병렬: work_extract + persona_extract 동시 실행
     emit({"type": "analyzing", "slug": slug, "step": "work_extract", "current": idx, "total": total})

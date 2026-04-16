@@ -45,14 +45,6 @@
               placeholder="slug"
               :disabled="!selectedIds.includes(c.user_id)"
             />
-            <select class="role-select" v-model="c.role" :disabled="!selectedIds.includes(c.user_id)">
-              <option value="general">역할 선택</option>
-              <option value="backend">백엔드 엔지니어</option>
-              <option value="frontend">프론트엔드 엔지니어</option>
-              <option value="ml">AI/ML 엔지니어</option>
-              <option value="pm">프로덕트 매니저</option>
-              <option value="data">데이터 분석가</option>
-            </select>
             <input
               class="impression-input"
               v-model="c.impression"
@@ -177,7 +169,6 @@ interface Candidate {
   message_count: number
   suggested_slug: string
   editedSlug: string
-  role: string
   impression: string
 }
 
@@ -265,7 +256,6 @@ async function doDiscover(): Promise<void> {
     candidates.value = raw.map(c => ({
       ...c,
       editedSlug: c.suggested_slug,
-      role: 'general',
       impression: '',
     }))
 
@@ -304,7 +294,6 @@ async function doExtract(): Promise<void> {
     user_id: c.user_id,
     slug: c.editedSlug || c.suggested_slug,
     display_name: c.display_name,
-    role: c.role || 'general',
     impression: c.impression || '',
   }))
 
@@ -605,16 +594,6 @@ function completeStep(member: Member, key: string): void {
 }
 .slug-input:focus { outline: none; border-color: var(--orange); }
 .slug-input:disabled { color: var(--gray-400); }
-.role-select {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  padding: 3px 6px;
-  border: 1px solid var(--gray-200);
-  border-radius: 3px;
-  background: var(--gray-50);
-  color: var(--gray-600);
-}
-.role-select:disabled { color: var(--gray-400); }
 .impression-input {
   font-size: 12px;
   width: 140px;
