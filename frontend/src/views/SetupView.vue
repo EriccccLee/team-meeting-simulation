@@ -343,6 +343,8 @@ async function startSimulation(): Promise<void> {
     const { session_id } = await res.json()
 
     store.topic = topic.value.trim()
+    // 새로운 session_id를 localStorage에 저장
+    localStorage.setItem('activeSessionId', session_id)
     router.push({ path: '/meeting', query: { session: session_id } })
   } catch (e) {
     error.value = (e as Error).message

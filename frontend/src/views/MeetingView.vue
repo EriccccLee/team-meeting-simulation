@@ -259,14 +259,20 @@ onMounted(async () => {
       isRunning.value = false
       isDone.value = true
       activeSpeaker.value = ''
+      // 시뮬레이션 완료 후 localStorage에서 activeSessionId 제거
+      localStorage.removeItem('activeSessionId')
     } else if (event.type === 'cancelled') {
       isRunning.value = false
       isDone.value = true
       feed.value.push({ type: 'moderator', content: '[시뮬레이션이 중단되었습니다]' })
+      // 중단 후 localStorage에서 activeSessionId 제거
+      localStorage.removeItem('activeSessionId')
     } else if (event.type === 'error') {
       isRunning.value = false
       hasError.value = true
       feed.value.push({ type: 'moderator', content: `[오류] ${event.message}` })
+      // 오류 발생 시 localStorage에서 activeSessionId 제거
+      localStorage.removeItem('activeSessionId')
     } else if (event.type === 'end') {
       // Fix 1: Null out the ref after closing
       if (es.value) { es.value.close(); es.value = null }
@@ -296,6 +302,8 @@ function startNewMeeting(): void {
   // Fix 1: Close SSE before navigating away
   if (es.value) { es.value.close(); es.value = null }
   store.topic = ''
+  // 새로운 회의 시작할 때 진행 중인 session 제거
+  localStorage.removeItem('activeSessionId')
   router.push('/')
 }
 
@@ -309,12 +317,16 @@ async function cancelMeeting(): Promise<void> {
   // Fix 1: Close SSE in cancel path
   if (es.value) { es.value.close(); es.value = null }
   isRunning.value = false
+  // 중단 시 localStorage에서 activeSessionId 제거
+  localStorage.removeItem('activeSessionId')
   router.push('/')
 }
 
 function startFollowUp(): void {
   if (es.value) { es.value.close(); es.value = null }
   const sessionId = typeof route.query.session === 'string' ? route.query.session.trim() : ''
+  // 후속 회의 시작할 때 진행 중인 session 제거
+  localStorage.removeItem('activeSessionId')
   router.push({ path: '/', query: { ref: sessionId } })
 }
 </script>
