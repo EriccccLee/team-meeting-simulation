@@ -66,6 +66,7 @@
             :speaker="item.speaker"
             :slug="item.slug"
             :content="item.content"
+            :evidence="item.evidence"
             :color="store.colorOf(item.slug ?? '')"
           />
         </template>
@@ -106,6 +107,7 @@ interface FeedItem {
   tool_name?: string
   tool_input?: Record<string, unknown>
   tool_failed?: boolean
+  evidence?: string[]
 }
 
 interface PreprocessingFile {
@@ -245,12 +247,16 @@ onMounted(async () => {
       })
     } else if (event.type === 'message') {
       activeSpeaker.value = event.slug as string
-      feed.value.push({
+      const feedItem: FeedItem = {
         type: 'message',
         speaker: event.speaker as string,
         slug: event.slug as string,
         content: event.content as string,
-      })
+      }
+      if (event.evidence && Array.isArray(event.evidence)) {
+        feedItem.evidence = event.evidence
+      }
+      feed.value.push(feedItem)
     } else if (event.type === 'done') {
       const last = feed.value[feed.value.length - 1]
       if (last && last.type === 'moderator') {

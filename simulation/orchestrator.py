@@ -145,9 +145,9 @@ class MeetingOrchestrator:
             if self._cancel_check():
                 logger.info("시뮬레이션 취소 요청 — Phase 1 조기 종료")
                 return
-            response = self._call_agent(agent, topic, self.history, instruction, skip_delay=(i == 0))
+            response, evidence = self._call_agent(agent, topic, self.history, instruction, skip_delay=(i == 0))
             if response:
-                self.session.stream_message(agent.config.name, response, agent.config.slug)
+                self.session.stream_message(agent.config.name, response, agent.config.slug, evidence=evidence)
                 self._add_agent(agent, response, phase=1)
 
     def _phase2(self, topic: str) -> None:
@@ -193,10 +193,10 @@ class MeetingOrchestrator:
                 logger.info("시뮬레이션 취소 요청 — Phase 2 에이전트 호출 전 조기 종료")
                 return
 
-            response = self._call_agent(agent, topic, self.history, instruction, skip_delay=first_agent_call)
+            response, evidence = self._call_agent(agent, topic, self.history, instruction, skip_delay=first_agent_call)
             first_agent_call = False
             if response:
-                self.session.stream_message(agent.config.name, response, agent.config.slug)
+                self.session.stream_message(agent.config.name, response, agent.config.slug, evidence=evidence)
                 self._add_agent(agent, response, phase=2)
                 last_slug = slug  # only track successful speakers; failed turns don't block re-selection
 
@@ -214,9 +214,9 @@ class MeetingOrchestrator:
             if self._cancel_check():
                 logger.info("시뮬레이션 취소 요청 — Phase 3 조기 종료")
                 return ""
-            response = self._call_agent(agent, topic, self.history, instruction, skip_delay=(i == 0))
+            response, evidence = self._call_agent(agent, topic, self.history, instruction, skip_delay=(i == 0))
             if response:
-                self.session.stream_message(agent.config.name, response, agent.config.slug)
+                self.session.stream_message(agent.config.name, response, agent.config.slug, evidence=evidence)
                 self._add_agent(agent, response, phase=3)
 
         consensus = self._call_moderator("draft_consensus", topic=topic, history=self.history)
@@ -269,13 +269,16 @@ class MeetingOrchestrator:
         instruction: str,
         *,
         skip_delay: bool = False,
-    ) -> str | None:
+    ) -> tuple[str | None, list[str]]:
         """
         오류 처리:
           - TimeoutError  → stderr 로그 후 스킵 (회의 계속 진행)
           - RuntimeError  → stderr 로그 후 스킵
         rate limit 방지를 위해 호출 전 call_delay 초 대기합니다.
         skip_delay=True 이면 대기를 건너뜁니다 (Phase 첫 호출 등).
+
+        Returns:
+            (response, retrieved_messages) — response는 None일 수 있음 (오류 시)
         """
         if not skip_delay:
             time.sleep(self.config.call_delay)
@@ -300,17 +303,18 @@ class MeetingOrchestrator:
             )
 
         try:
-            return agent.respond(
+            response = agent.respond(
                 topic, history, instruction,
                 on_tool_use=_on_tool_use,
                 retrieved_messages=retrieved,
             )
+            return (response, retrieved)
         except TimeoutError:
             logger.error("[%s] 타임아웃 재시도 실패 — 이번 발언을 건너뜁니다", agent.config.slug)
-            return None
+            return (None, [])
         except RuntimeError as e:
             logger.error("[%s] claude -p 실패: %s — 건너뜁니다", agent.config.slug, e)
-            return None
+            return (None, [])
 
     def _call_moderator(self, method: str, *, skip_delay: bool = False, **kwargs) -> str:
         """ModeratorAgent 호출. 실패 시 플레이스홀더 문자열 반환."""

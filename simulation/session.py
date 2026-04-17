@@ -65,8 +65,21 @@ class MeetingSession:
         if self._emit:
             self._emit({"type": "phase", "label": phase_name})
 
-    def stream_message(self, speaker: str, content: str, slug: str = "") -> None:
-        """팀원 발언 출력."""
+    def stream_message(
+        self,
+        speaker: str,
+        content: str,
+        slug: str = "",
+        evidence: list[str] | None = None,
+    ) -> None:
+        """팀원 발언 출력.
+
+        Args:
+            speaker: 발언자 이름
+            content: 발언 내용
+            slug: 발언자 식별자 (선택)
+            evidence: 근거가 된 과거 Slack 메시지 목록 (선택) — 프론트엔드에서 tooltip으로 표시
+        """
         label = f"[{speaker}]" + (f" ({slug})" if slug else "")
         self._print(f"\n{label}")
         self._print(content)
@@ -74,7 +87,10 @@ class MeetingSession:
         md_heading = f"### {speaker}" + (f" ({slug})" if slug else "")
         self._sections.append(f"\n{md_heading}\n{content}\n")
         if self._emit:
-            self._emit({"type": "message", "speaker": speaker, "slug": slug, "content": content})
+            event = {"type": "message", "speaker": speaker, "slug": slug, "content": content}
+            if evidence:
+                event["evidence"] = evidence
+            self._emit(event)
 
     def stream_tool_use(
         self,
