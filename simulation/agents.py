@@ -37,6 +37,62 @@ class MeetingAgent:
         self.config = config
         self.model_client = model_client
         self._system_prompt: str | None = None
+        self._stance: str | None = None  # "support" | "oppose" | "neutral"
+
+    def determine_stance(
+        self, topic: str, retrieved_messages: list[str] | None = None
+    ) -> str:
+        """
+        안건에 대한 자신의 입장을 결정합니다.
+
+        Returns: "support" | "oppose" | "neutral"
+        """
+        past_context = ""
+        if retrieved_messages:
+            past_context = (
+                "## 당신의 과거 관련 발언\n"
+                + "\n".join(f"- {m}" for m in retrieved_messages[:3])
+                + "\n\n"
+            )
+
+        stance_prompt = (
+            f"{self.config.skill_md}\n\n"
+            "---\n\n"
+            f"{past_context}"
+            f"안건: {topic}\n\n"
+            "위 당신의 페르소나, 특히 Layer 3 (의사결정 패턴)과 과거 발언을 고려하여, "
+            "이 안건에 대한 당신의 입장을 단 한 단어로 답하세요:\n\n"
+            "- support: 동의하고 지지\n"
+            "- oppose: 우려나 반대\n"
+            "- neutral: 조건부 또는 중립\n\n"
+            "\"support\", \"oppose\", 또는 \"neutral\" 중 하나만 답하세요. 다른 텍스트는 없이."
+        )
+
+        try:
+            response = self.model_client.call(
+                stance_prompt,
+                [],
+            ).strip().lower()
+
+            stance = "support"
+            if "oppose" in response:
+                stance = "oppose"
+            elif "neutral" in response:
+                stance = "neutral"
+
+            self._stance = stance
+            logger.info(
+                "[%s] Stance determined for '%s': %s",
+                self.config.slug, topic[:30], stance
+            )
+            return stance
+        except Exception as e:
+            logger.warning(
+                "[%s] Failed to determine stance: %s — defaulting to 'support'",
+                self.config.slug, e
+            )
+            self._stance = "support"
+            return "support"
 
     def build_system_prompt(self, topic: str, file_contents: dict[str, str]) -> None:
         """topic 과 첨부 파일을 반영해 system prompt 를 구성하고 캐시합니다."""
@@ -60,6 +116,18 @@ class MeetingAgent:
             "고유명사를 지어내지 마세요. 불확실한 정보는 '직접 확인이 필요합니다'라고 명시하세요."
         )
 
+        stance_instruction = ""
+        if self._stance:
+            stance_display = {
+                "support": "동의 및 지지",
+                "oppose": "우려 및 반대",
+                "neutral": "조건부 또는 중립"
+            }
+            stance_instruction = (
+                f"\n\n[당신의 입장] 이 안건에 대해 **{stance_display[self._stance]}** 입장입니다. "
+                "이 입장을 명확히 하면서 발언하세요."
+            )
+
         self._system_prompt = (
             f"{self.config.skill_md}\n\n"
             "---\n\n"
@@ -68,8 +136,13 @@ class MeetingAgent:
             f"안건: {topic}\n"
             f"{file_section}\n"
             "위 정체성과 말투를 유지하며 회의에 참여하세요.\n"
+            "당신의 페르소나 Layer 3(의사결정 패턴)에 따라 이 안건을 평가하세요.\n"
+            "과거 발언에서 드러난 당신의 가치관에 어긋나는 부분이 있다면 "
+            "명확히 반대 의견을 내세요.\n"
+            "다른 팀원과 다른 관점이 있다면 반드시 표현하세요. 단순 동의만 하지 마세요.\n"
             "다른 팀원의 발언에 반응할 때도 본인 캐릭터를 일관되게 유지하세요.\n"
-            "간결하게 발언하세요 (3~5문장 권장).\n\n"
+            "간결하게 발언하세요 (3~5문장 권장).\n"
+            f"{stance_instruction}\n\n"
             f"[정보 신뢰성 지침] {search_note}"
         )
 
@@ -99,6 +172,10 @@ class MeetingAgent:
         if self._system_prompt is None:
             self.build_system_prompt(topic, file_contents or {})
 
+        # Stance 기반 instruction 강화
+        enhanced_instruction = self._enhance_instruction(instruction)
+        instruction = enhanced_instruction
+
         messages = list(history)
 
         if retrieved_messages:
@@ -117,6 +194,29 @@ class MeetingAgent:
         })
 
         return self.model_client.call(self._system_prompt, messages, on_tool_use=on_tool_use)
+
+    def _enhance_instruction(self, base_instruction: str) -> str:
+        """
+        stance에 따라 지시를 강화합니다.
+        """
+        if self._stance == "oppose":
+            return (
+                f"{base_instruction}\n\n"
+                "당신의 입장은 반대입니다. 구체적인 우려 사항이나 반대 근거를 명확히 제시하세요. "
+                "기술적, 운영적, 리스크 관점 등에서 문제점을 지적하세요."
+            )
+        elif self._stance == "neutral":
+            return (
+                f"{base_instruction}\n\n"
+                "당신의 입장은 중립입니다. 조건부로 동의한다면 구체적인 조건을 명시하세요. "
+                "혹은 추가 정보나 검토가 필요한 부분을 명확히 지적하세요."
+            )
+        else:  # support
+            return (
+                f"{base_instruction}\n\n"
+                "당신의 입장은 지지입니다. 적극적으로 지지하되, "
+                "실행 과정의 구체적인 방안이나 일정, 리소스 등을 함께 제안하세요."
+            )
 
 
 # ── ModeratorAgent ────────────────────────────────────────────────────────────
@@ -180,6 +280,9 @@ class ModeratorAgent:
         """
         Phase 2에서 다음 발언자 slug를 선택합니다.
         exclude: 직전 발언자 slug — 이 사람은 선택하지 않음.
+
+        의견 다양성을 고려하여, 아직 반대나 중립 의견이 나오지 않았으면
+        그런 입장을 낼 수 있는 사람을 우선 선택합니다.
         파싱 실패 시 참여자 중 랜덤 선택으로 fallback.
         """
         if len(self.participant_slugs) <= 1:
@@ -192,10 +295,17 @@ class ModeratorAgent:
 
         slugs_str = ", ".join(available)
         history_summary = self._summarize_history(history)
+
+        # 현재 의견 다양성 분석
+        diversity_hint = self._analyze_opinion_diversity(history)
+
         instruction = (
             f"다음 발언자를 선택하세요.\n"
             f"선택지: {slugs_str}\n\n"
             f"현재까지 대화 흐름:\n{history_summary}\n\n"
+            f"의견 다양성 현황: {diversity_hint}\n\n"
+            "현재까지 나온 의견이 편중되었다면, 다른 관점을 제시할 수 있는 사람을 선택하세요. "
+            "다양한 의견이 나와야 좋은 회의입니다.\n"
             "가장 기여할 수 있는 사람 1명의 slug만 출력하세요. "
             "다른 텍스트 없이 slug 만 출력하세요."
         )
@@ -233,6 +343,41 @@ class ModeratorAgent:
                 return slug
         match = re.search(r"\b([a-z][a-z0-9_-]+)\b", text)
         return match.group(1) if match else ""
+
+    @staticmethod
+    def _analyze_opinion_diversity(history: list[dict]) -> str:
+        """
+        히스토리에서 나온 의견들의 다양성을 분석합니다.
+        단순 휴리스틱: 반대/우려 키워드를 찾아 의견 다양성 판단.
+        """
+        agent_messages = [
+            msg for msg in history
+            if msg.get("role") == "assistant"
+            and msg.get("slug") not in ("__moderator__", "__memory__")
+        ]
+
+        # 반대/우려 관련 키워드 탐색
+        opposite_keywords = [
+            "반대", "문제", "우려", "위험", "부족", "아직",
+            "검토", "확인", "조심", "신중", "다만", "그런데",
+            "불안", "의문", "의심", "조건부"
+        ]
+
+        oppose_count = 0
+        for msg in agent_messages:
+            content = msg.get("content", "").lower()
+            if any(kw in content for kw in opposite_keywords):
+                oppose_count += 1
+
+        total = len(agent_messages)
+        if total == 0:
+            return "아직 발언이 없습니다."
+        if oppose_count == 0:
+            return "현재까지 모두 긍정적인 의견입니다. 우려나 다른 관점이 있으면 제시해주세요."
+        if oppose_count == total:
+            return "현재까지 모두 부정적인 의견입니다. 가능성이나 긍정적 측면도 함께 검토하세요."
+
+        return f"긍정적/지지 의견 {total - oppose_count}명, 우려/반대 관련 의견 {oppose_count}명이 나왔습니다."
 
     @staticmethod
     def _summarize_history(history: list[dict], max_entries: int = 10) -> str:

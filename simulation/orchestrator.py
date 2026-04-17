@@ -98,7 +98,27 @@ class MeetingOrchestrator:
         if not self.agents:
             return
 
-        instruction = "이 안건에 대한 초기 의견을 밝혀주세요."
+        # 각 에이전트의 입장을 먼저 결정합니다 (Stance determination)
+        logger.info("각 에이전트의 입장 결정 중...")
+        for i, agent in enumerate(self.agents):
+            if self._cancel_check():
+                logger.info("시뮬레이션 취소 요청 — Phase 1 조기 종료")
+                return
+
+            # 이 에이전트를 위한 슬랙 검색 수행
+            retrieved: list[str] = []
+            if self.retriever is not None:
+                query = topic
+                retrieved = self.retriever.search(agent.config.slug, query)
+
+            # Stance 결정 (별도 LLM 호출)
+            agent.determine_stance(topic, retrieved)
+            time.sleep(self.config.call_delay)
+
+        instruction = (
+            "이 안건에 대한 초기 의견을 밝혀주세요. "
+            "당신의 실제 입장을 명확히 표현하세요."
+        )
         # 순차 실행: 각 에이전트 응답이 완료되는 즉시 stream_message 호출
         # (병렬 실행 시 전원 완료 후 일괄 emit되어 스트리밍 UX가 깨짐)
         for i, agent in enumerate(self.agents):
@@ -123,7 +143,12 @@ class MeetingOrchestrator:
         self._add_moderator(transition)
 
         agent_map = {a.config.slug: a for a in self.agents}
-        instruction = "다른 팀원의 의견에 반응하거나 새 논점을 제시하세요."
+        instruction = (
+            "지금까지의 의견을 바탕으로 당신의 입장을 명확히 하세요. "
+            "동의한다면 구체적인 실행 방안을 제안하고, "
+            "우려가 있다면 그 근거와 함께 반대 의견을 내세요. "
+            "과거 팀 결정이나 당신의 경험에 비추어 판단하세요."
+        )
         last_slug: str | None = None
         first_agent_call = True
 
