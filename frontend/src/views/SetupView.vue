@@ -20,6 +20,15 @@
           />
         </div>
 
+        <!-- NEW SECTION: Web Search Toggle -->
+        <div class="field">
+          <label class="checkbox-label">
+            <input type="checkbox" v-model="enableWebSearch" />
+            <span class="checkbox-text">🔍 웹 검색 포함 <span class="optional">(선택)</span></span>
+          </label>
+          <p class="checkbox-hint">안건을 웹에서 미리 검색해 컨텍스트에 반영합니다</p>
+        </div>
+
         <div class="field">
           <label class="field-label">첨부 파일 <span class="optional">(선택)</span></label>
           <div
@@ -164,6 +173,7 @@ interface HistoryItem {
 const historyList = ref<HistoryItem[]>([])
 
 const topic = ref('')
+const enableWebSearch = ref(false)
 const files = ref<File[]>([])
 const selectedSlugs = ref<string[]>([])
 const rounds = ref(3)
@@ -666,5 +676,28 @@ async function startSimulation(): Promise<void> {
   color: var(--gray-400);
   letter-spacing: 0.02em;
   margin-top: 3px;
+}
+
+/* 웹 검색 토글 체크박스 */
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  user-select: none;
+}
+.checkbox-label input[type="checkbox"] {
+  accent-color: var(--orange);
+  cursor: pointer;
+}
+.checkbox-text {
+  font-size: 14px;
+  color: var(--gray-800);
+}
+.checkbox-hint {
+  margin: 6px 0 0 26px;
+  font-size: 12px;
+  color: var(--gray-500);
+  line-height: 1.5;
 }
 </style>
