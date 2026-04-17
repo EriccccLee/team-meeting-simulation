@@ -23,8 +23,9 @@
         <div class="field checkbox-field">
           <label class="checkbox-label" for="enableWebSearch">
             <input id="enableWebSearch" type="checkbox" v-model="enableWebSearch" />
-            <span class="checkbox-text">🔍 웹 검색 포함 <span class="optional" title="안건을 웹에서 미리 검색해 컨텍스트에 반영합니다">(선택)</span></span>
+            <span class="checkbox-text">🔍 웹 검색 포함 <span class="optional">(선택)</span></span>
           </label>
+          <p class="checkbox-description">안건을 웹에서 미리 검색해 컨텍스트에 반영합니다</p>
         </div>
 
         <div class="field">
@@ -705,8 +706,10 @@ async function startSimulation(): Promise<void> {
   margin-bottom: 12px;
   margin-top: -12px;
 }
-.optional[title] {
-  cursor: help;
-  border-bottom: 1px dotted var(--gray-400);
+.checkbox-description {
+  margin: 6px 0 0 26px;
+  font-size: 12px;
+  color: var(--gray-500);
+  line-height: 1.4;
 }
 </style>
