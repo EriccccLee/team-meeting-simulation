@@ -538,12 +538,14 @@ def extract_work_patterns(
     max_messages: int = _DEFAULT_MAX_MESSAGES,
     role: str = "",
     impression: str = "",
+    display_name: str = "",
 ) -> str:
     """Stage 1: 메시지에서 업무 패턴을 구조화 데이터로 추출."""
     msg_block = _format_messages_for_llm(messages, max_messages)
-    role_ctx = f"\n\n[이 팀원의 직무: {role}]\n" if role else ""
-    impression_ctx = f"\n\n[팀원 인상 메모: {impression}]\n" if impression.strip() else ""
-    prompt = _WORK_EXTRACT_PROMPT + role_ctx + impression_ctx + f"\n\n## 메시지\n\n{msg_block}"
+    name_ctx = f"\n\n**분석 대상: {display_name}**\n아래 메시지는 모두 {display_name}이(가) 직접 작성한 것입니다.\n" if display_name else ""
+    role_ctx = f"\n[이 팀원의 직무: {role}]\n" if role else ""
+    impression_ctx = f"\n[팀원 인상 메모: {impression}]\n" if impression.strip() else ""
+    prompt = _WORK_EXTRACT_PROMPT + name_ctx + role_ctx + impression_ctx + f"\n\n## 메시지\n\n{msg_block}"
     result = model_client.call(
         system_prompt=_WORK_SYSTEM,
         messages=[{"slug": "user", "speaker": "user", "content": prompt}],
@@ -567,12 +569,14 @@ def extract_persona_patterns(
     max_messages: int = _DEFAULT_MAX_MESSAGES,
     impression: str = "",
     role: str = "",
+    display_name: str = "",
 ) -> str:
     """Stage 1: 메시지에서 페르소나 패턴을 구조화 데이터로 추출."""
     msg_block = _format_messages_for_llm(messages, max_messages)
-    role_ctx = f"\n\n[추론된 직무: {role}]\n" if role else ""
-    impression_ctx = f"\n\n[팀원 인상 메모: {impression}]\n" if impression.strip() else ""
-    prompt = _PERSONA_EXTRACT_PROMPT + role_ctx + impression_ctx + f"\n\n## 메시지\n\n{msg_block}"
+    name_ctx = f"\n\n**분석 대상: {display_name}**\n아래 메시지는 모두 {display_name}이(가) 직접 작성한 것입니다.\n" if display_name else ""
+    role_ctx = f"\n[추론된 직무: {role}]\n" if role else ""
+    impression_ctx = f"\n[팀원 인상 메모: {impression}]\n" if impression.strip() else ""
+    prompt = _PERSONA_EXTRACT_PROMPT + name_ctx + role_ctx + impression_ctx + f"\n\n## 메시지\n\n{msg_block}"
     result = model_client.call(
         system_prompt=_PERSONA_SYSTEM,
         messages=[{"slug": "user", "speaker": "user", "content": prompt}],
@@ -780,10 +784,10 @@ def _process_one_member(
     try:
         with ThreadPoolExecutor(max_workers=2) as stage1_pool:
             work_fut = stage1_pool.submit(
-                extract_work_patterns, messages, model_client, max_messages, role, impression
+                extract_work_patterns, messages, model_client, max_messages, role, impression, display_name
             )
             persona_fut = stage1_pool.submit(
-                extract_persona_patterns, messages, model_client, max_messages, impression, role
+                extract_persona_patterns, messages, model_client, max_messages, impression, role, display_name
             )
         work_analysis = work_fut.result()
         persona_analysis = persona_fut.result()
@@ -883,7 +887,19 @@ def _run_extraction(
             retry_client = ClaudeCodeModelClient(timeout=420)
             logger.info("실패 멤버 %d명 재시도 시작", len(failed_members))
             for member, idx in failed_members:
-                emit({"type": "retry_member", "slug": member["slug"]})
+                # 이미 프로필이 생성된 멤버는 스킵 (future 예외로 인한 false negative 방지)
+                slug = member["slug"]
+                existing_dir = team_skills_dir / slug
+                if existing_dir.is_dir() and (existing_dir / "SKILL.md").exists():
+                    logger.info("프로필 이미 존재 — 재시도 스킵 (slug=%s)", slug)
+                    # 기존 프로필에서 part_b를 읽어 summaries_input에 추가
+                    try:
+                        part_b = (existing_dir / "persona.md").read_text(encoding="utf-8")
+                        summaries_input.append((slug, member["display_name"], part_b))
+                    except Exception:
+                        pass
+                    continue
+                emit({"type": "retry_member", "slug": slug})
                 try:
                     result = _process_one_member(
                         member, token, channels, retry_client,
@@ -893,7 +909,7 @@ def _run_extraction(
                     if result is not None:
                         summaries_input.append(result)
                 except Exception as e:
-                    logger.error("재시도 중 예외 (slug=%s): %s", member["slug"], e)
+                    logger.error("재시도 중 예외 (slug=%s): %s", slug, e)
 
         # LLM 페르소나 요약 병렬 생성
         persona_summaries: dict[str, list[str]] = {}
