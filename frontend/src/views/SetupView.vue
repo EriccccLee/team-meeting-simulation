@@ -330,6 +330,7 @@ async function startSimulation(): Promise<void> {
     formData.append('topic', topic.value.trim())
     selectedSlugs.value.forEach(s => formData.append('participants', s))
     formData.append('rounds', String(rounds.value))
+    formData.append('enable_web_search', String(enableWebSearch.value))
     files.value.forEach(f => formData.append('files', f))
 
     const res = await fetch('/api/run', { method: 'POST', body: formData })
