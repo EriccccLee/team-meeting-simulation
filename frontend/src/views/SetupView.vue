@@ -24,8 +24,8 @@
           <label class="checkbox-label" for="enableWebSearch">
             <input id="enableWebSearch" type="checkbox" v-model="enableWebSearch" />
             <span class="checkbox-text">🔍 웹 검색 포함 <span class="optional">(선택)</span></span>
+            <span class="help-icon" data-tooltip="안건을 웹에서 미리 검색해 컨텍스트에 반영합니다">ⓘ</span>
           </label>
-          <p class="checkbox-description">안건을 웹에서 미리 검색해 컨텍스트에 반영합니다</p>
         </div>
 
         <div class="field">
@@ -706,10 +706,56 @@ async function startSimulation(): Promise<void> {
   margin-bottom: 12px;
   margin-top: -12px;
 }
-.checkbox-description {
-  margin: 6px 0 0 26px;
+.help-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  margin-left: 6px;
+  border-radius: 50%;
+  background: var(--gray-200);
+  color: var(--gray-600);
+  font-size: 11px;
+  font-weight: bold;
+  cursor: help;
+  position: relative;
+}
+.help-icon[data-tooltip]::before {
+  content: attr(data-tooltip);
+  position: absolute;
+  bottom: calc(100% + 10px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--gray-900);
+  color: #fff;
   font-size: 12px;
-  color: var(--gray-500);
-  line-height: 1.4;
+  padding: 8px 12px;
+  border-radius: 4px;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s;
+  z-index: 1000;
+}
+.help-icon[data-tooltip]::after {
+  content: '';
+  position: absolute;
+  bottom: calc(100% + 4px);
+  left: 50%;
+  transform: translateX(-50%);
+  width: 0;
+  height: 0;
+  border-left: 5px solid transparent;
+  border-right: 5px solid transparent;
+  border-top: 5px solid var(--gray-900);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s;
+  z-index: 1000;
+}
+.help-icon[data-tooltip]:hover::before,
+.help-icon[data-tooltip]:hover::after {
+  opacity: 1;
 }
 </style>
