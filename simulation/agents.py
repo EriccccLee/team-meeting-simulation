@@ -71,7 +71,7 @@ class MeetingAgent:
         try:
             response = self.model_client.call(
                 stance_prompt,
-                [],
+                [{"content": "위 프롬프트에 따라 입장을 결정하세요."}],
             ).strip().lower()
 
             stance = "support"
