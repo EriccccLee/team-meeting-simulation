@@ -65,15 +65,19 @@ class MeetingAgent:
         history: list[dict],
         instruction: str,
         file_contents: dict[str, str] | None = None,
+        retrieved_messages: list[str] | None = None,
+        on_tool_use=None,
     ) -> str:
         """
         현재 대화 히스토리와 사회자 지시를 받아 이 팀원의 발언을 생성합니다.
 
         Args:
-            topic:         회의 안건
-            history:       현재까지의 전체 대화 히스토리
-            instruction:   사회자가 이 팀원에게 내리는 지시
-            file_contents: 첨부 파일 내용 {파일명: 내용} (선택)
+            topic:              회의 안건
+            history:            현재까지의 전체 대화 히스토리
+            instruction:        사회자가 이 팀원에게 내리는 지시
+            file_contents:      첨부 파일 내용 {파일명: 내용} (선택)
+            retrieved_messages: BM25로 검색된 관련 과거 Slack 메시지 (선택)
+            on_tool_use:        도구 사용 감지 시 호출되는 콜백 (선택)
 
         Returns:
             생성된 발언 텍스트
@@ -82,13 +86,23 @@ class MeetingAgent:
             self.build_system_prompt(topic, file_contents or {})
 
         messages = list(history)
+
+        if retrieved_messages:
+            messages.append({
+                "slug": "__memory__",
+                "speaker": "[과거 발언 참고]",
+                "content": "당신의 관련 과거 발언:\n" + "\n".join(
+                    f"- {m}" for m in retrieved_messages
+                ),
+            })
+
         messages.append({
             "slug": "__moderator__",
             "speaker": "[사회자]",
             "content": instruction,
         })
 
-        return self.model_client.call(self._system_prompt, messages)
+        return self.model_client.call(self._system_prompt, messages, on_tool_use=on_tool_use)
 
 
 # ── ModeratorAgent ────────────────────────────────────────────────────────────

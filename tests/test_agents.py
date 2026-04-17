@@ -162,3 +162,25 @@ class TestModeratorAgentAnnounceOpening:
 
         result = mod.announce_opening("분기 리뷰", [])
         assert result == expected
+
+
+def test_respond_with_retrieved_messages_injects_memory():
+    """retrieved_messages가 있으면 __memory__ 메시지로 삽입되어야 한다."""
+    agent = _make_agent()
+    agent.respond("안건", [], "발언하세요", retrieved_messages=["과거 발언 A", "과거 발언 B"])
+    call_args = agent.model_client.call.call_args
+    messages_arg = call_args[0][1]  # positional: system_prompt, messages
+    memory_msgs = [m for m in messages_arg if m.get("slug") == "__memory__"]
+    assert len(memory_msgs) == 1
+    assert "과거 발언 A" in memory_msgs[0]["content"]
+    assert "과거 발언 B" in memory_msgs[0]["content"]
+
+
+def test_respond_without_retrieved_messages_no_memory_injection():
+    """retrieved_messages가 없으면 __memory__ 메시지가 삽입되지 않아야 한다."""
+    agent = _make_agent()
+    agent.respond("안건", [], "발언하세요")
+    call_args = agent.model_client.call.call_args
+    messages_arg = call_args[0][1]
+    memory_msgs = [m for m in messages_arg if m.get("slug") == "__memory__"]
+    assert len(memory_msgs) == 0
