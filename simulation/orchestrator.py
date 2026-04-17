@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Callable
 
 from .agents import MeetingAgent, ModeratorAgent
+from .retriever import SlackRetriever
 from .session import MeetingSession
 
 logger = logging.getLogger(__name__)
@@ -51,6 +52,7 @@ class MeetingOrchestrator:
         session: MeetingSession,
         config: OrchestratorConfig | None = None,
         cancel_check: Callable[[], bool] | None = None,
+        retriever: SlackRetriever | None = None,
     ) -> None:
         self.agents = agents
         self.moderator = moderator
@@ -58,6 +60,7 @@ class MeetingOrchestrator:
         self.config = config or OrchestratorConfig()
         self.history: list[dict] = []
         self._cancel_check = cancel_check or (lambda: False)
+        self.retriever = retriever
 
     def run(self, topic: str, file_contents: dict[str, str]) -> MeetingResult:
         # 각 에이전트의 system prompt 에 topic + 첨부 파일 주입
@@ -216,8 +219,31 @@ class MeetingOrchestrator:
         """
         if not skip_delay:
             time.sleep(self.config.call_delay)
+
+        retrieved: list[str] = []
+        if self.retriever is not None:
+            recent_content = " ".join(
+                msg["content"][:80]
+                for msg in history[-3:]
+                if msg.get("slug") not in ("__moderator__", "__memory__")
+            )
+            query = f"{topic} {recent_content}".strip()
+            retrieved = self.retriever.search(agent.config.slug, query)
+
+        def _on_tool_use(tool_info: dict) -> None:
+            self.session.stream_tool_use(
+                tool_name=tool_info.get("name", "Unknown"),
+                tool_input=tool_info.get("input", {}),
+                slug=agent.config.slug,
+                speaker=agent.config.name,
+            )
+
         try:
-            return agent.respond(topic, history, instruction)
+            return agent.respond(
+                topic, history, instruction,
+                on_tool_use=_on_tool_use,
+                retrieved_messages=retrieved,
+            )
         except TimeoutError:
             logger.error("[%s] 타임아웃 재시도 실패 — 이번 발언을 건너뜁니다", agent.config.slug)
             return None
