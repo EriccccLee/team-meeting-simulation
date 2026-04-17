@@ -23,11 +23,7 @@
         <div class="field checkbox-field">
           <label class="checkbox-label" for="enableWebSearch">
             <input id="enableWebSearch" type="checkbox" v-model="enableWebSearch" />
-            <span class="checkbox-text">🔍 웹 검색 포함 <span class="optional">(선택)</span></span>
-            <span class="checkbox-help">
-              <span class="help-icon">ⓘ</span>
-              <span class="help-tooltip">안건을 웹에서 미리 검색해 컨텍스트에 반영합니다</span>
-            </span>
+            <span class="checkbox-text">🔍 웹 검색 포함 <span class="optional" title="안건을 웹에서 미리 검색해 컨텍스트에 반영합니다">(선택)</span></span>
           </label>
         </div>
 
@@ -709,61 +705,8 @@ async function startSimulation(): Promise<void> {
   margin-bottom: 12px;
   margin-top: -12px;
 }
-.checkbox-help {
-  display: flex;
-  align-items: center;
-  margin-left: 6px;
-  position: relative;
-}
-.help-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
-  background: var(--gray-200);
-  color: var(--gray-600);
-  font-size: 11px;
-  font-weight: bold;
+.optional[title] {
   cursor: help;
-  flex-shrink: 0;
-}
-.help-tooltip {
-  visibility: hidden;
-  opacity: 0;
-  position: absolute;
-  bottom: calc(100% + 12px);
-  left: 50%;
-  transform: translateX(-50%);
-  background: var(--gray-900);
-  color: #fff;
-  font-size: 12px;
-  padding: 10px 12px;
-  border-radius: 4px;
-  max-width: 220px;
-  white-space: normal;
-  text-align: center;
-  line-height: 1.5;
-  z-index: 9999;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-  transition: opacity 0.2s, visibility 0.2s;
-}
-.help-tooltip::after {
-  content: '';
-  position: absolute;
-  top: 100%;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 0;
-  height: 0;
-  border-left: 6px solid transparent;
-  border-right: 6px solid transparent;
-  border-top: 6px solid var(--gray-900);
-}
-.help-icon:hover ~ .help-tooltip,
-.checkbox-help:hover .help-tooltip {
-  visibility: visible;
-  opacity: 1;
+  border-bottom: 1px dotted var(--gray-400);
 }
 </style>
