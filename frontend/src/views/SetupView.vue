@@ -19,7 +19,6 @@
             rows="4"
           />
         </div>
-
         <!-- NEW SECTION: Web Search Toggle -->
         <div class="field checkbox-field">
           <label class="checkbox-label" for="enableWebSearch">
@@ -706,7 +705,8 @@ async function startSimulation(): Promise<void> {
   color: var(--gray-800);
 }
 .checkbox-field {
-  margin-bottom: 20px;
+  margin-bottom: 12px;
+  margin-top: -12px;
 }
 .checkbox-help {
   position: relative;
@@ -726,21 +726,25 @@ async function startSimulation(): Promise<void> {
   font-size: 11px;
   font-weight: bold;
   cursor: help;
+  flex-shrink: 0;
 }
 .help-tooltip {
   display: none;
   position: absolute;
-  bottom: 125%;
+  bottom: calc(100% + 8px);
   left: 50%;
   transform: translateX(-50%);
   background: var(--gray-900);
   color: #fff;
-  font-size: 11px;
-  padding: 8px 10px;
+  font-size: 12px;
+  padding: 10px 12px;
   border-radius: 4px;
-  white-space: nowrap;
+  max-width: 200px;
+  white-space: normal;
+  text-align: center;
+  line-height: 1.4;
   z-index: 1000;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.2);
 }
 .help-tooltip::after {
   content: '';
