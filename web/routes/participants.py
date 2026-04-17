@@ -1,12 +1,14 @@
 """
-GET  /api/participants           — 팀원 목록 반환
-PATCH /api/participants/{slug}/role — 역할 수정
+GET    /api/participants             — 팀원 목록 반환
+PATCH  /api/participants/{slug}/role — 역할 수정
+DELETE /api/participants/{slug}      — 팀원 삭제 (로컬 파일 포함)
 """
 from __future__ import annotations
 
 import hashlib
 import json
 import re
+import shutil
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
@@ -89,3 +91,14 @@ def update_participant_role(slug: str, body: RoleUpdate) -> dict:
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     return {"slug": slug, "role": body.role}
+
+
+@router.delete("/participants/{slug}", status_code=204)
+def delete_participant(slug: str) -> None:
+    """팀원 디렉터리 전체를 삭제합니다 (team-skills/{slug}/ 포함)."""
+    if not _SLUG_RE.fullmatch(slug):
+        raise HTTPException(status_code=400, detail="invalid slug")
+    member_dir = TEAM_SKILLS_DIR / slug
+    if not member_dir.is_dir():
+        raise HTTPException(status_code=404, detail="참여자를 찾을 수 없습니다.")
+    shutil.rmtree(member_dir)

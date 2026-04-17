@@ -57,8 +57,8 @@ def test_is_noise_mention_with_text():
 
 
 def test_is_noise_too_short():
-    assert _is_noise("네") is True   # 2자
-    assert _is_noise("ok") is True   # 2자
+    assert _is_noise("네") is True   # 1자 — 노이즈
+    assert _is_noise("ok") is False  # 2자 — 임계값(1자 이하)을 넘으므로 노이즈 아님
 
 
 def test_is_noise_normal_message():
@@ -91,15 +91,19 @@ from simulation.slack_collector import discover_users
 
 
 def _make_mock_client(messages_by_channel, user_profile):
-    """conversations_history + users_info 를 모킹한 Slack WebClient."""
+    """conversations_history + users_info 를 모킹한 Slack WebClient.
+
+    RateLimitedSlackClient.call()은 getattr(client, method)(**kwargs).data를 반환하므로
+    MagicMock(data={...}) 형태로 반환해야 한다.
+    """
     mock = MagicMock()
 
     def conversations_history(channel, cursor=None, limit=200):
         msgs = messages_by_channel.get(channel, [])
-        return {"messages": msgs, "response_metadata": {}}
+        return MagicMock(data={"messages": msgs, "response_metadata": {}})
 
     mock.conversations_history.side_effect = conversations_history
-    mock.users_info.return_value = {"user": user_profile}
+    mock.users_info.return_value = MagicMock(data={"user": user_profile})
     return mock
 
 
@@ -164,15 +168,15 @@ def test_discover_users_sorted_by_count_desc():
     }
 
     mock_client = MagicMock()
-    mock_client.conversations_history.return_value = {
+    mock_client.conversations_history.return_value = MagicMock(data={
         "messages": [
             {"type": "message", "user": "UA", "text": f"m{i}"} for i in range(5)
         ] + [
             {"type": "message", "user": "UB", "text": f"n{i}"} for i in range(10)
         ],
         "response_metadata": {},
-    }
-    mock_client.users_info.return_value = {"user": profile}
+    })
+    mock_client.users_info.return_value = MagicMock(data={"user": profile})
 
     with patch("simulation.slack_collector.WebClient", return_value=mock_client):
         result = discover_users(["C001"], "xoxb-fake", min_messages=3)
@@ -189,9 +193,9 @@ def test_collect_user_messages_filters_by_user():
     mock_client = MagicMock()
     mock_client.call.return_value = {
         "messages": [
-            {"type": "message", "user": "UA001", "text": "오늘 배포 일정 확인했어요"},
-            {"type": "message", "user": "UB002", "text": "저도 확인했습니다"},
-            {"type": "message", "user": "UA001", "text": "내일 오후로 확정입니다"},
+            {"type": "message", "user": "UA001", "text": "오늘 배포 일정 확인했어요", "ts": "1000.0"},
+            {"type": "message", "user": "UB002", "text": "저도 확인했습니다", "ts": "1001.0"},
+            {"type": "message", "user": "UA001", "text": "내일 오후로 확정입니다", "ts": "1002.0"},
         ],
         "response_metadata": {},
     }
@@ -211,10 +215,10 @@ def test_collect_user_messages_filters_noise():
     mock_client = MagicMock()
     mock_client.call.return_value = {
         "messages": [
-            {"type": "message", "user": "UA001", "text": "👍"},
-            {"type": "message", "user": "UA001", "text": "<@UB002>"},
-            {"type": "message", "user": "UA001", "text": "배포 완료 확인했습니다"},
-            {"type": "message", "user": "UA001", "text": "네"},
+            {"type": "message", "user": "UA001", "text": "👍", "ts": "1000.0"},
+            {"type": "message", "user": "UA001", "text": "<@UB002>", "ts": "1001.0"},
+            {"type": "message", "user": "UA001", "text": "배포 완료 확인했습니다", "ts": "1002.0"},
+            {"type": "message", "user": "UA001", "text": "네", "ts": "1003.0"},
         ],
         "response_metadata": {},
     }
@@ -235,7 +239,7 @@ def test_collect_user_messages_aggregates_multiple_channels():
         channel = kwargs.get("channel", "")
         return {
             "messages": [
-                {"type": "message", "user": "UA001", "text": f"{channel} 메시지입니다"}
+                {"type": "message", "user": "UA001", "text": f"{channel} 메시지입니다", "ts": "1000.0"}
             ],
             "response_metadata": {},
         }
@@ -309,9 +313,10 @@ def test_write_profile_slug_conflict_resolved():
     """슬러그 충돌 시 _2, _3 suffix 자동 부여."""
     with tempfile.TemporaryDirectory() as tmpdir:
         team_dir = Path(tmpdir)
-        r1 = write_profile("alice", "Alice 1", "a", "b", team_dir)
-        r2 = write_profile("alice", "Alice 2", "a", "b", team_dir)
-        r3 = write_profile("alice", "Alice 3", "a", "b", team_dir)
+        claimed = set()
+        r1 = write_profile("alice", "Alice 1", "a", "b", team_dir, claimed_slugs=claimed)
+        r2 = write_profile("alice", "Alice 2", "a", "b", team_dir, claimed_slugs=claimed)
+        r3 = write_profile("alice", "Alice 3", "a", "b", team_dir, claimed_slugs=claimed)
 
         assert r1 == team_dir / "alice"
         assert r2 == team_dir / "alice_2"
@@ -441,11 +446,12 @@ def test_extract_work_patterns_calls_llm_with_formatted_messages():
         {"content": "Snowflake 쿼리 최적화 작업했어요", "ts": "1", "channel": "C001", "is_thread_starter": True},
     ]
     mock_client = MagicMock()
-    mock_client.call.return_value = "분석 결과"
+    long_result = "분석 결과 " * 20  # _validate_llm_output min_length=100 충족
+    mock_client.call.return_value = long_result
 
     result = extract_work_patterns(messages, mock_client, max_messages=10)
 
-    assert result == "분석 결과"
+    assert result == long_result.strip()
     assert mock_client.call.called
     call_kwargs = mock_client.call.call_args
     assert "토론 시작 메시지" in str(call_kwargs)
@@ -454,11 +460,11 @@ def test_extract_work_patterns_calls_llm_with_formatted_messages():
 def test_build_work_md_formats_with_name():
     """build_work_md가 display_name과 분석 결과를 LLM에 전달한다."""
     mock_client = MagicMock()
-    mock_client.call.return_value = "# Work Profile"
+    mock_client.call.return_value = "# Work Profile\n" + "x" * 100  # min_length=100 충족
 
     result = build_work_md("분석 결과", "홍길동", mock_client)
 
-    assert result == "# Work Profile"
+    assert "# Work Profile" in result
     assert mock_client.call.called
     call_kwargs = str(mock_client.call.call_args)
     assert "홍길동" in call_kwargs
@@ -471,11 +477,12 @@ def test_extract_persona_patterns_calls_llm_with_formatted_messages():
         {"content": "회의에서 의견을 명확하게 전달하는 편입니다", "ts": "1", "channel": "C001", "is_thread_starter": True},
     ]
     mock_client = MagicMock()
-    mock_client.call.return_value = "페르소나 분석 결과"
+    long_result = "페르소나 분석 결과 " * 20  # _validate_llm_output min_length=100 충족
+    mock_client.call.return_value = long_result
 
     result = extract_persona_patterns(messages, mock_client, max_messages=10)
 
-    assert result == "페르소나 분석 결과"
+    assert result == long_result.strip()
     assert mock_client.call.called
     call_kwargs = mock_client.call.call_args
     assert "토론 시작 메시지" in str(call_kwargs)
@@ -484,11 +491,11 @@ def test_extract_persona_patterns_calls_llm_with_formatted_messages():
 def test_build_persona_md_formats_with_name():
     """build_persona_md가 display_name과 분석 결과를 LLM에 전달한다."""
     mock_client = MagicMock()
-    mock_client.call.return_value = "# Persona Profile"
+    mock_client.call.return_value = "# Persona Profile\n" + "x" * 100  # min_length=100 충족
 
     result = build_persona_md("페르소나 분석 결과", "김철수", mock_client)
 
-    assert result == "# Persona Profile"
+    assert "# Persona Profile" in result
     assert mock_client.call.called
     call_kwargs = str(mock_client.call.call_args)
     assert "김철수" in call_kwargs
@@ -508,21 +515,21 @@ def test_infer_role_returns_valid_role():
     assert result == "backend"
 
 
-def test_infer_role_falls_back_to_general_on_unknown():
-    """LLM이 알 수 없는 값을 반환하면 'general'로 폴백한다."""
+def test_infer_role_returns_raw_llm_output():
+    """LLM 출력을 자유 형식 텍스트로 그대로 반환한다 (고정 역할 목록 없음)."""
     from simulation.slack_collector import infer_role
 
     messages = [{"content": "안녕하세요", "ts": "1", "channel": "C001", "is_thread_starter": False}]
     mock_client = MagicMock()
-    mock_client.call.return_value = "engineer"  # 유효하지 않은 값
+    mock_client.call.return_value = "engineer"
 
     result = infer_role(messages, mock_client, sample_size=5)
 
-    assert result == "general"
+    assert result == "engineer"  # LLM 출력이 자유 형식으로 그대로 반환됨
 
 
-def test_infer_role_falls_back_to_general_on_exception():
-    """LLM 호출 실패 시 'general'로 폴백한다."""
+def test_infer_role_returns_empty_on_exception():
+    """LLM 호출 실패 시 빈 문자열을 반환한다."""
     from simulation.slack_collector import infer_role
 
     messages = [{"content": "안녕하세요", "ts": "1", "channel": "C001", "is_thread_starter": False}]
@@ -531,30 +538,31 @@ def test_infer_role_falls_back_to_general_on_exception():
 
     result = infer_role(messages, mock_client, sample_size=5)
 
-    assert result == "general"
+    assert result == ""  # 예외 발생 시 빈 문자열 반환
 
 
 def test_extract_work_patterns_appends_role_prompt():
-    """role='backend'이면 역할별 추가 프롬프트가 포함된다."""
+    """role='backend'이면 역할 컨텍스트가 프롬프트에 포함된다."""
     messages = [
         {"content": "API 설계했어요", "ts": "1", "channel": "C001", "is_thread_starter": False},
     ]
     mock_client = MagicMock()
-    mock_client.call.return_value = "분석"
+    mock_client.call.return_value = "A" * 100  # _validate_llm_output min_length=100 충족
 
     extract_work_patterns(messages, mock_client, max_messages=10, role="backend")
 
     call_args = str(mock_client.call.call_args)
-    assert "백엔드 추가 분석" in call_args
+    assert "이 팀원의 직무" in call_args
+    assert "backend" in call_args
 
 
 def test_extract_work_patterns_general_no_role_prompt():
-    """role='general'이면 역할별 추가 프롬프트가 없다."""
+    """role='general'이면 역할별 '추가 분석' 문구가 포함되지 않는다."""
     messages = [
         {"content": "일반 작업했어요", "ts": "1", "channel": "C001", "is_thread_starter": False},
     ]
     mock_client = MagicMock()
-    mock_client.call.return_value = "분석"
+    mock_client.call.return_value = "A" * 100  # _validate_llm_output min_length=100 충족
 
     extract_work_patterns(messages, mock_client, max_messages=10, role="general")
 
@@ -566,7 +574,7 @@ def test_extract_persona_patterns_injects_impression():
     """impression이 있으면 프롬프트에 포함된다."""
     messages = [{"content": "열심히 일했어요", "ts": "1", "channel": "C001", "is_thread_starter": False}]
     mock_client = MagicMock()
-    mock_client.call.return_value = "분석"
+    mock_client.call.return_value = "A" * 100  # _validate_llm_output min_length=100 충족
 
     extract_persona_patterns(messages, mock_client, max_messages=10, impression="꼼꼼하고 체계적")
 
@@ -579,7 +587,7 @@ def test_extract_persona_patterns_no_impression_block_when_empty():
     """impression이 빈 문자열이면 인상 메모 블록이 포함되지 않는다."""
     messages = [{"content": "열심히 일했어요", "ts": "1", "channel": "C001", "is_thread_starter": False}]
     mock_client = MagicMock()
-    mock_client.call.return_value = "분석"
+    mock_client.call.return_value = "A" * 100  # _validate_llm_output min_length=100 충족
 
     extract_persona_patterns(messages, mock_client, max_messages=10, impression="")
 
@@ -591,7 +599,7 @@ def test_extract_persona_patterns_whitespace_only_impression_suppressed():
     """impression이 공백만 있으면 인상 메모 블록이 포함되지 않는다."""
     messages = [{"content": "열심히 일했어요", "ts": "1", "channel": "C001", "is_thread_starter": False}]
     mock_client = MagicMock()
-    mock_client.call.return_value = "분석"
+    mock_client.call.return_value = "A" * 100  # _validate_llm_output min_length=100 충족
 
     extract_persona_patterns(messages, mock_client, max_messages=10, impression="   ")
 

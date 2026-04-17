@@ -23,6 +23,7 @@ import logging
 import os
 import queue as stdlib_queue
 import re
+import ssl
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -74,7 +75,12 @@ class RateLimitedSlackClient:
     """Slack API 호출을 래핑해 ratelimited 오류 시 Retry-After 기반 재시도."""
 
     def __init__(self, token: str) -> None:
-        self._client = WebClient(token=token)
+        # 사내 SSL 인터셉션 프록시가 AKI 확장 없는 인증서를 주입해 Python 3.10+에서
+        # CERTIFICATE_VERIFY_FAILED가 발생한다. 내부 툴이므로 검증을 비활성화한다.
+        _ssl_ctx = ssl.create_default_context()
+        _ssl_ctx.check_hostname = False
+        _ssl_ctx.verify_mode = ssl.CERT_NONE
+        self._client = WebClient(token=token, ssl=_ssl_ctx)
 
     def call(self, method: str, **kwargs) -> dict:
         """단일 API 메서드를 호출하고 응답 data를 반환."""
