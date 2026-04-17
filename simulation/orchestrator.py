@@ -61,12 +61,13 @@ class MeetingOrchestrator:
         self.history: list[dict] = []
         self._cancel_check = cancel_check or (lambda: False)
         self.retriever = retriever
+        self._file_contents: dict[str, str] = {}  # run()에서 저장
 
     def run(self, topic: str, file_contents: dict[str, str]) -> MeetingResult:
-        # 각 에이전트의 system prompt 에 topic + 첨부 파일 주입
-        for agent in self.agents:
-            agent.build_system_prompt(topic, file_contents)
+        # file_contents를 저장 (Phase 진행 중 필요할 때 사용)
+        self._file_contents = file_contents
 
+        # build_system_prompt는 Phase 1에서 stance 결정 후에 호출합니다
         self._phase1(topic)
         if self._cancel_check():
             return MeetingResult(output_file=Path(os.devnull), consensus="", history=list(self.history))
@@ -98,8 +99,8 @@ class MeetingOrchestrator:
         if not self.agents:
             return
 
-        # 각 에이전트의 입장을 먼저 결정합니다 (Stance determination)
-        logger.info("각 에이전트의 입장 결정 중...")
+        # 각 에이전트의 입장을 먼저 결정하고 system prompt를 구성합니다
+        logger.info("각 에이전트의 입장 결정 및 system prompt 구성 중...")
         for i, agent in enumerate(self.agents):
             if self._cancel_check():
                 logger.info("시뮬레이션 취소 요청 — Phase 1 조기 종료")
@@ -113,6 +114,10 @@ class MeetingOrchestrator:
 
             # Stance 결정 (별도 LLM 호출)
             agent.determine_stance(topic, retrieved)
+
+            # Stance가 결정된 후 system prompt 구성 (stance 지시 포함)
+            agent.build_system_prompt(topic, self._file_contents)
+
             time.sleep(self.config.call_delay)
 
         instruction = (
