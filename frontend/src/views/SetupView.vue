@@ -80,6 +80,7 @@
                     @click.stop
                   />
                 </label>
+                <button class="p-del" @click="deleteParticipant(p.slug)" title="팀원 삭제">×</button>
               </li>
             </ul>
           </template>
@@ -296,6 +297,19 @@ async function onRoleChange(p: { slug: string; role: string }, newRole: string):
   }
 }
 
+async function deleteParticipant(slug: string): Promise<void> {
+  const target = store.participants.find(p => p.slug === slug)
+  if (!confirm(`'${target?.name ?? slug}' 팀원을 삭제하시겠습니까?\n로컬 스킬 파일도 함께 삭제됩니다.`)) return
+  const res = await fetch(`/api/participants/${slug}`, { method: 'DELETE' })
+  if (!res.ok) {
+    error.value = '팀원 삭제에 실패했습니다.'
+    return
+  }
+  const idx = store.participants.findIndex(p => p.slug === slug)
+  if (idx !== -1) store.participants.splice(idx, 1)
+  selectedSlugs.value = selectedSlugs.value.filter(s => s !== slug)
+}
+
 async function startSimulation(): Promise<void> {
   if (!canStart.value) return
   isSubmitting.value = true
@@ -439,8 +453,14 @@ async function startSimulation(): Promise<void> {
 
 /* 참여자 */
 .participant-list { list-style: none; }
-.participant-item { margin-bottom: 8px; }
+.participant-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 8px;
+}
 .participant-label {
+  flex: 1;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -453,7 +473,21 @@ async function startSimulation(): Promise<void> {
   font-family: var(--font-mono); font-size: 11px;
   color: #fff; flex-shrink: 0;
 }
-.p-name { font-size: 14px; font-weight: 500; flex: 1; }
+.p-name { font-size: 14px; font-weight: 500; }
+.p-del {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 16px;
+  color: var(--gray-400);
+  line-height: 1;
+  padding: 0 4px;
+  flex-shrink: 0;
+  opacity: 0;
+  transition: opacity 0.15s, color 0.15s;
+}
+.participant-item:hover .p-del { opacity: 1; }
+.p-del:hover { color: #DC2626; }
 
 /* 아바타 툴팁 */
 .avatar-wrap {
@@ -500,7 +534,7 @@ async function startSimulation(): Promise<void> {
   background: var(--gray-50);
   color: var(--gray-600);
   flex-shrink: 0;
-  width: 120px;
+  width: 160px;
 }
 .role-input:focus { outline: none; border-color: var(--orange); }
 .role-input::placeholder { color: var(--gray-400); }
