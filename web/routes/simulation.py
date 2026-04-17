@@ -28,6 +28,7 @@ _ROOT = Path(__file__).parent.parent.parent
 from simulation.agents import MeetingAgent, ModeratorAgent
 from simulation.model_client import ClaudeCodeModelClient, decode_bytes, run_claude_prompt
 from simulation.orchestrator import MeetingOrchestrator, OrchestratorConfig
+from simulation.retriever import SlackRetriever
 from simulation.session import MeetingSession
 from simulation.loader import load_agent_config as _load_agent_config, load_file_contents as _load_file_contents
 
@@ -196,7 +197,7 @@ def _save_history(session_id: str, topic: str, participant_slugs: list[str],
 
     # preprocessing / sentinel 제외, 순수 시뮬레이션 이벤트만 저장
     feed = [e for e in events
-            if e.get("type") in ("phase", "message", "moderator", "done", "error")]
+            if e.get("type") in ("phase", "message", "moderator", "tool_use", "done", "error")]
 
     data = {
         "session_id": session_id,
@@ -302,10 +303,12 @@ def _run_simulation(
             output_dir=str(_ROOT / "outputs"),
             emit=emit,
         )
+        retriever = SlackRetriever(_ROOT / "team-skills")
         cfg = OrchestratorConfig(phase2_rounds=rounds)
         orchestrator = MeetingOrchestrator(
             agents, moderator, session, cfg,
             cancel_check=lambda: _cancel_flags.get(session_id, False),
+            retriever=retriever,
         )
         result = orchestrator.run(topic, file_contents)
 
