@@ -172,8 +172,8 @@ class MeetingAgent:
         if self._system_prompt is None:
             self.build_system_prompt(topic, file_contents or {})
 
-        # Stance 기반 instruction 강화
-        enhanced_instruction = self._enhance_instruction(instruction)
+        # Stance + Slack 근거 기반 instruction 강화
+        enhanced_instruction = self._enhance_instruction(instruction, retrieved_messages)
         instruction = enhanced_instruction
 
         messages = list(history)
@@ -195,27 +195,41 @@ class MeetingAgent:
 
         return self.model_client.call(self._system_prompt, messages, on_tool_use=on_tool_use)
 
-    def _enhance_instruction(self, base_instruction: str) -> str:
+    def _enhance_instruction(
+        self, base_instruction: str, retrieved_messages: list[str] | None = None
+    ) -> str:
         """
-        stance에 따라 지시를 강화합니다.
+        stance와 past slack 메시지를 바탕으로 지시를 강화합니다.
         """
+        slack_context = ""
+        if retrieved_messages:
+            # 과거 발언을 요약하여 근거로 제시
+            slack_context = (
+                "\n\n당신의 관련 과거 발언을 참고하세요:\n"
+                + "\n".join(f"  - {m[:120]}" for m in retrieved_messages[:2])
+                + "\n\n위 발언들과의 일관성을 유지하며 발언하세요."
+            )
+
         if self._stance == "oppose":
             return (
                 f"{base_instruction}\n\n"
                 "당신의 입장은 반대입니다. 구체적인 우려 사항이나 반대 근거를 명확히 제시하세요. "
                 "기술적, 운영적, 리스크 관점 등에서 문제점을 지적하세요."
+                f"{slack_context}"
             )
         elif self._stance == "neutral":
             return (
                 f"{base_instruction}\n\n"
                 "당신의 입장은 중립입니다. 조건부로 동의한다면 구체적인 조건을 명시하세요. "
                 "혹은 추가 정보나 검토가 필요한 부분을 명확히 지적하세요."
+                f"{slack_context}"
             )
         else:  # support
             return (
                 f"{base_instruction}\n\n"
                 "당신의 입장은 지지입니다. 적극적으로 지지하되, "
                 "실행 과정의 구체적인 방안이나 일정, 리소스 등을 함께 제안하세요."
+                f"{slack_context}"
             )
 
 
