@@ -21,12 +21,15 @@
         </div>
 
         <!-- NEW SECTION: Web Search Toggle -->
-        <div class="field">
+        <div class="field checkbox-field">
           <label class="checkbox-label" for="enableWebSearch">
             <input id="enableWebSearch" type="checkbox" v-model="enableWebSearch" />
             <span class="checkbox-text">🔍 웹 검색 포함 <span class="optional">(선택)</span></span>
+            <span class="checkbox-help">
+              <span class="help-icon">ⓘ</span>
+              <span class="help-tooltip">안건을 웹에서 미리 검색해 컨텍스트에 반영합니다</span>
+            </span>
           </label>
-          <p class="checkbox-hint">안건을 웹에서 미리 검색해 컨텍스트에 반영합니다</p>
         </div>
 
         <div class="field">
@@ -702,11 +705,56 @@ async function startSimulation(): Promise<void> {
   font-size: 14px;
   color: var(--gray-800);
 }
-.checkbox-hint {
-  margin: 6px 0 0 0;
-  padding-left: 26px;
-  font-size: 12px;
+.checkbox-field {
+  margin-bottom: 20px;
+}
+.checkbox-help {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  margin-left: 6px;
+}
+.help-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--gray-200);
   color: var(--gray-600);
-  line-height: 1.5;
+  font-size: 11px;
+  font-weight: bold;
+  cursor: help;
+}
+.help-tooltip {
+  display: none;
+  position: absolute;
+  bottom: 125%;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--gray-900);
+  color: #fff;
+  font-size: 11px;
+  padding: 8px 10px;
+  border-radius: 4px;
+  white-space: nowrap;
+  z-index: 1000;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+}
+.help-tooltip::after {
+  content: '';
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 0;
+  height: 0;
+  border-left: 5px solid transparent;
+  border-right: 5px solid transparent;
+  border-top: 5px solid var(--gray-900);
+}
+.checkbox-help:hover .help-tooltip {
+  display: block;
 }
 </style>
