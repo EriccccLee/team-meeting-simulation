@@ -11,6 +11,7 @@ from __future__ import annotations
 import logging
 import os
 import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
@@ -99,26 +100,40 @@ class MeetingOrchestrator:
         if not self.agents:
             return
 
-        # 각 에이전트의 입장을 먼저 결정하고 system prompt를 구성합니다
-        logger.info("각 에이전트의 입장 결정 및 system prompt 구성 중...")
-        for i, agent in enumerate(self.agents):
+        # 각 에이전트의 입장을 병렬로 결정합니다 (성능 최적화)
+        logger.info("각 에이전트의 입장 결정 중... (병렬 처리)")
+
+        # Step 1: 모든 에이전트의 stance를 병렬로 결정
+        with ThreadPoolExecutor(max_workers=min(5, len(self.agents))) as executor:
+            futures = {}
+            for agent in self.agents:
+                if self._cancel_check():
+                    logger.info("시뮬레이션 취소 요청 — Phase 1 조기 종료")
+                    return
+
+                # BM25 검색 및 stance 결정을 병렬 작업으로 제출
+                future = executor.submit(
+                    self._determine_stance_for_agent, agent, topic
+                )
+                futures[agent.config.slug] = future
+
+            # 모든 stance 결정이 완료될 때까지 대기
+            for agent in self.agents:
+                if self._cancel_check():
+                    return
+                future = futures[agent.config.slug]
+                try:
+                    future.result(timeout=self.config.call_delay * 3)  # 타임아웃: 24초
+                except Exception as e:
+                    logger.error("[%s] Stance 결정 실패: %s", agent.config.slug, e)
+
+        # Step 2: Stance 결정 후 각 에이전트의 system prompt 구성
+        logger.info("System prompt 구성 중...")
+        for agent in self.agents:
             if self._cancel_check():
                 logger.info("시뮬레이션 취소 요청 — Phase 1 조기 종료")
                 return
-
-            # 이 에이전트를 위한 슬랙 검색 수행
-            retrieved: list[str] = []
-            if self.retriever is not None:
-                query = topic
-                retrieved = self.retriever.search(agent.config.slug, query)
-
-            # Stance 결정 (별도 LLM 호출)
-            agent.determine_stance(topic, retrieved)
-
-            # Stance가 결정된 후 system prompt 구성 (stance 지시 포함)
             agent.build_system_prompt(topic, self._file_contents)
-
-            time.sleep(self.config.call_delay)
 
         instruction = (
             "이 안건에 대한 초기 의견을 밝혀주세요. "
@@ -208,6 +223,21 @@ class MeetingOrchestrator:
         self.session.stream_moderator(consensus)
         self._add_moderator(consensus)
         return consensus
+
+    # ── Helpers ───────────────────────────────────────────────────────────────
+
+    def _determine_stance_for_agent(self, agent: MeetingAgent, topic: str) -> None:
+        """
+        병렬 실행용: 에이전트의 BM25 검색 및 stance 결정을 수행합니다.
+        """
+        retrieved: list[str] = []
+        if self.retriever is not None:
+            try:
+                retrieved = self.retriever.search(agent.config.slug, topic)
+            except Exception as e:
+                logger.warning("[%s] BM25 검색 실패: %s", agent.config.slug, e)
+
+        agent.determine_stance(topic, retrieved)
 
     # ── History management ────────────────────────────────────────────────────
 
