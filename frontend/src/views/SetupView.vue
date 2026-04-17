@@ -473,7 +473,7 @@ async function startSimulation(): Promise<void> {
   font-family: var(--font-mono); font-size: 11px;
   color: #fff; flex-shrink: 0;
 }
-.p-name { font-size: 14px; font-weight: 500; }
+.p-name { font-size: 14px; font-weight: 500; margin-right: 14px; }
 .p-del {
   background: none;
   border: none;
