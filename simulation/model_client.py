@@ -16,6 +16,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from typing import Callable
 
 logger = logging.getLogger(__name__)
@@ -39,26 +40,43 @@ _CLAUDE_EXE: str = shutil.which("claude") or "claude"
 _IS_WINDOWS: bool = sys.platform == "win32"
 
 
+def _is_rate_limit_error(stderr: str) -> bool:
+    """stderr에서 rate limit 오류 감지."""
+    lower_err = stderr.lower()
+    return any(marker in lower_err for marker in [
+        "rate limit",
+        "429",
+        "overloaded",
+        "too many requests",
+        "quota",
+    ])
+
+
 def run_claude_prompt(
     args: list[str],
     *,
     stdin: bytes | None = None,
     timeout: int = 180,
+    max_retries: int = 3,
+    initial_backoff: float = 1.0,
 ) -> str:
     """
     `claude -p` 를 실행하고 stdout을 반환합니다.
+    Rate limit 오류 시 지수 백오프로 재시도합니다.
 
     Args:
-        args:    claude 실행 후 이어지는 인자 목록
-        stdin:   표준 입력 바이트 (선택)
-        timeout: 타임아웃 (초)
+        args:            claude 실행 후 이어지는 인자 목록
+        stdin:           표준 입력 바이트 (선택)
+        timeout:         타임아웃 (초)
+        max_retries:     최대 재시도 횟수 (rate limit 전용)
+        initial_backoff: 초기 백오프 시간 (초)
 
     Returns:
         stdout 문자열 (strip 처리됨)
 
     Raises:
         TimeoutError: 타임아웃 초과
-        RuntimeError: non-zero exit code
+        RuntimeError: non-zero exit code (rate limit 제외)
     """
     exe = _CLAUDE_EXE
     if _IS_WINDOWS:
@@ -67,27 +85,46 @@ def run_claude_prompt(
         cmd = [exe]
     cmd += args
 
-    try:
-        result = subprocess.run(
-            cmd,
-            input=stdin,
-            capture_output=True,
-            timeout=timeout,
-            shell=False,
-        )
-    except subprocess.TimeoutExpired:
-        raise TimeoutError(f"claude timed out after {timeout}s")
+    last_err = None
+    backoff = initial_backoff
 
-    stdout = decode_bytes(result.stdout)
-    stderr = decode_bytes(result.stderr)
+    for attempt in range(max_retries + 1):
+        try:
+            result = subprocess.run(
+                cmd,
+                input=stdin,
+                capture_output=True,
+                timeout=timeout,
+                shell=False,
+            )
+        except subprocess.TimeoutExpired:
+            raise TimeoutError(f"claude timed out after {timeout}s")
 
-    if result.returncode != 0:
+        stdout = decode_bytes(result.stdout)
+        stderr = decode_bytes(result.stderr)
+
+        if result.returncode == 0:
+            return stdout.strip()
+
+        # Rate limit 오류 판정
+        if _is_rate_limit_error(stderr) and attempt < max_retries:
+            logger.warning(
+                "Rate limit detected (attempt %d/%d) — retrying in %.1f seconds...",
+                attempt + 1, max_retries + 1, backoff
+            )
+            time.sleep(backoff)
+            backoff *= 2  # 지수 백오프
+            last_err = stderr.strip()
+            continue
+
+        # Rate limit이 아니거나 마지막 재시도 → 실패
         logger.error("claude stderr: %s", stderr.strip())
         raise RuntimeError(
             f"claude exited with code {result.returncode}: {stderr.strip()}"
         )
 
-    return stdout.strip()
+    # 도달 불가능 (위의 continue/raise로 항상 반환)
+    raise RuntimeError(f"Claude failed after {max_retries + 1} attempts: {last_err}")
 
 
 class ClaudeCodeModelClient:
@@ -166,29 +203,48 @@ class ClaudeCodeModelClient:
             else:
                 cmd = [_CLAUDE_EXE] + base_cmd
 
-            try:
-                result = subprocess.run(
-                    cmd,
-                    input=conversation.encode("utf-8"),
-                    capture_output=True,
-                    timeout=self.timeout,
-                    shell=False,
+            # Rate limit 재시도 로직 (지수 백오프)
+            max_retries = 3
+            backoff = 1.0
+            last_stderr = ""
+
+            for attempt in range(max_retries + 1):
+                try:
+                    result = subprocess.run(
+                        cmd,
+                        input=conversation.encode("utf-8"),
+                        capture_output=True,
+                        timeout=self.timeout,
+                        shell=False,
+                    )
+                except subprocess.TimeoutExpired as e:
+                    raise TimeoutError(f"claude -p timed out after {self.timeout}s") from e
+
+                stdout = decode_bytes(result.stdout)
+                stderr = decode_bytes(result.stderr)
+
+                if result.returncode == 0:
+                    # 성공
+                    return self._parse_stream_json(stdout, on_tool_use)
+
+                # Rate limit 오류 판정
+                last_stderr = stderr.strip()
+                if _is_rate_limit_error(last_stderr) and attempt < max_retries:
+                    logger.warning(
+                        "Rate limit detected (attempt %d/%d) — retrying in %.1f seconds...",
+                        attempt + 1, max_retries + 1, backoff
+                    )
+                    time.sleep(backoff)
+                    backoff *= 2  # 지수 백오프
+                    continue
+
+                # Rate limit이 아니거나 마지막 재시도 → 실패
+                logger.error("claude -p stderr: %s", last_stderr)
+                raise RuntimeError(
+                    f"claude -p exited with code {result.returncode}: {last_stderr}"
                 )
-            except subprocess.TimeoutExpired as e:
-                raise TimeoutError(f"claude -p timed out after {self.timeout}s") from e
         finally:
             os.unlink(sp_file.name)
-
-        stdout = decode_bytes(result.stdout)
-        stderr = decode_bytes(result.stderr)
-
-        if result.returncode != 0:
-            logger.error("claude -p stderr: %s", stderr.strip())
-            raise RuntimeError(
-                f"claude -p exited with code {result.returncode}: {stderr.strip()}"
-            )
-
-        return self._parse_stream_json(stdout, on_tool_use)
 
     @staticmethod
     def _parse_stream_json(

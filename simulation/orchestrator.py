@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 class OrchestratorConfig:
     phase2_rounds: int = 3          # Phase 2 총 발언 횟수
     max_tokens_per_turn: int = 500  # system prompt 지시용 (API 강제 아님)
-    call_delay: float = 8.0         # 연속 claude 호출 간 대기 시간 (초). rate limit 방지.
+    call_delay: float = 3.0         # 연속 claude 호출 간 대기 시간 (초). rate limit 방지.
 
 
 @dataclass
