@@ -223,6 +223,7 @@ def _run_simulation(
     participant_slugs: list[str],
     rounds: int,
     raw_files: list[tuple[str, bytes]],
+    should_search: bool,
 ) -> None:
     """파일 전처리 → orchestrator.run() 을 동기 스레드에서 실행.
 
@@ -351,6 +352,7 @@ async def run_simulation(
     topic: Annotated[str, Form()],
     participants: Annotated[list[str], Form()],
     rounds: Annotated[int, Form()] = 3,
+    enable_web_search: Annotated[str, Form()] = "false",
     files: list[UploadFile] = File(default=[]),
 ) -> dict:
     """session_id 를 즉시 반환합니다. 파일 전처리 + 시뮬레이션은 백그라운드 스레드에서 실행됩니다."""
@@ -367,6 +369,9 @@ async def run_simulation(
         raw = await upload.read()
         raw_files.append((upload.filename or "attachment", raw))
 
+    # Parse enable_web_search from form (comes as "true"/"false" string)
+    should_search = enable_web_search.lower() in ("true", "1", "on")
+
     loop = asyncio.get_running_loop()
     loop.run_in_executor(
         None,
@@ -376,6 +381,7 @@ async def run_simulation(
         participants,
         rounds,
         raw_files,
+        should_search,
     )
 
     return {"session_id": session_id}
