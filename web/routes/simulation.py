@@ -223,7 +223,7 @@ def _run_simulation(
     participant_slugs: list[str],
     rounds: int,
     raw_files: list[tuple[str, bytes]],
-    should_search: bool,
+    enable_web_search: bool = False,
 ) -> None:
     """파일 전처리 → orchestrator.run() 을 동기 스레드에서 실행.
 
@@ -295,7 +295,7 @@ def _run_simulation(
                 file_contents[filename] = decode_bytes(raw)
 
         # ── 2. 웹 사전 검색 ───────────────────────────────────────────────────
-        if not _cancel_flags.get(session_id):
+        if enable_web_search and not _cancel_flags.get(session_id):
             emit({"type": "searching", "status": "running"})
             try:
                 search_md = pre_search(topic)
