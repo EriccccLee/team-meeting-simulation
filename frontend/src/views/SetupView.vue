@@ -688,6 +688,7 @@ async function startSimulation(): Promise<void> {
   gap: 8px;
   cursor: pointer;
   user-select: none;
+  position: relative;
 }
 .checkbox-label input[type="checkbox"] {
   accent-color: var(--orange);
@@ -709,10 +710,10 @@ async function startSimulation(): Promise<void> {
   margin-top: -12px;
 }
 .checkbox-help {
-  position: relative;
-  display: inline-flex;
+  display: flex;
   align-items: center;
   margin-left: 6px;
+  position: relative;
 }
 .help-icon {
   display: inline-flex;
@@ -729,9 +730,10 @@ async function startSimulation(): Promise<void> {
   flex-shrink: 0;
 }
 .help-tooltip {
-  display: none;
+  visibility: hidden;
+  opacity: 0;
   position: absolute;
-  bottom: calc(100% + 8px);
+  bottom: calc(100% + 12px);
   left: 50%;
   transform: translateX(-50%);
   background: var(--gray-900);
@@ -739,12 +741,13 @@ async function startSimulation(): Promise<void> {
   font-size: 12px;
   padding: 10px 12px;
   border-radius: 4px;
-  max-width: 200px;
+  max-width: 220px;
   white-space: normal;
   text-align: center;
-  line-height: 1.4;
-  z-index: 1000;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+  line-height: 1.5;
+  z-index: 9999;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+  transition: opacity 0.2s, visibility 0.2s;
 }
 .help-tooltip::after {
   content: '';
@@ -754,11 +757,13 @@ async function startSimulation(): Promise<void> {
   transform: translateX(-50%);
   width: 0;
   height: 0;
-  border-left: 5px solid transparent;
-  border-right: 5px solid transparent;
-  border-top: 5px solid var(--gray-900);
+  border-left: 6px solid transparent;
+  border-right: 6px solid transparent;
+  border-top: 6px solid var(--gray-900);
 }
+.help-icon:hover ~ .help-tooltip,
 .checkbox-help:hover .help-tooltip {
-  display: block;
+  visibility: visible;
+  opacity: 1;
 }
 </style>
