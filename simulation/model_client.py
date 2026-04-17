@@ -9,12 +9,14 @@ plan.md §4-1 참조.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import shutil
 import subprocess
 import sys
 import tempfile
+from typing import Callable
 
 logger = logging.getLogger(__name__)
 
@@ -102,11 +104,18 @@ class ClaudeCodeModelClient:
 
     # ── Public API ────────────────────────────────────────────────────────────
 
-    def call(self, system_prompt: str, messages: list[dict]) -> str:
+    def call(
+        self,
+        system_prompt: str,
+        messages: list[dict],
+        on_tool_use: Callable[[dict], None] | None = None,
+    ) -> str:
         """
         Args:
             system_prompt: 에이전트 system prompt 전문
             messages:      대화 히스토리 (speaker/slug/content 키 포함)
+            on_tool_use:   도구 사용 감지 시 호출되는 콜백 (선택)
+                           {"name": "WebSearch", "input": {...}} 형태의 dict 전달
 
         Returns:
             LLM 응답 텍스트 (strip 적용)
@@ -116,7 +125,7 @@ class ClaudeCodeModelClient:
 
         for attempt in range(2):
             try:
-                return self._run(system_prompt, conversation)
+                return self._run(system_prompt, conversation, on_tool_use=on_tool_use)
             except TimeoutError as e:
                 last_err = e
                 if attempt == 0:
@@ -128,7 +137,12 @@ class ClaudeCodeModelClient:
 
     # ── Internal ──────────────────────────────────────────────────────────────
 
-    def _run(self, system_prompt: str, conversation: str) -> str:
+    def _run(
+        self,
+        system_prompt: str,
+        conversation: str,
+        on_tool_use: Callable[[dict], None] | None = None,
+    ) -> str:
         # system_prompt 를 임시 파일로 저장 후 --system-prompt-file 로 전달합니다.
         # 이유: --system-prompt 인자로 넘기면 Windows 커맨드라인 길이 제한(32767자)
         #       초과 오류("명령줄이 너무 깁니다.")가 발생합니다.
@@ -142,9 +156,10 @@ class ClaudeCodeModelClient:
             base_cmd = [
                 "-p",
                 "--system-prompt-file", sp_file.name,
-                "--output-format", "text",
-                "--tools", "",               # 불필요한 도구 비활성화
-                "--no-session-persistence",  # 세션 저장 불필요, 속도 향상
+                "--output-format", "stream-json",  # NDJSON — tool use 감지 가능
+                "--verbose",                        # stream-json 은 --verbose 필수
+                "--tools", "WebSearch",             # WebSearch 활성화
+                "--no-session-persistence",
             ]
             if _IS_WINDOWS:
                 cmd = ["cmd.exe", "/c", _CLAUDE_EXE] + base_cmd
@@ -154,7 +169,7 @@ class ClaudeCodeModelClient:
             try:
                 result = subprocess.run(
                     cmd,
-                    input=conversation.encode("utf-8"),  # stdin 으로 대화 내용 전달
+                    input=conversation.encode("utf-8"),
                     capture_output=True,
                     timeout=self.timeout,
                     shell=False,
@@ -162,7 +177,7 @@ class ClaudeCodeModelClient:
             except subprocess.TimeoutExpired as e:
                 raise TimeoutError(f"claude -p timed out after {self.timeout}s") from e
         finally:
-            os.unlink(sp_file.name)  # 임시 파일 항상 삭제
+            os.unlink(sp_file.name)
 
         stdout = decode_bytes(result.stdout)
         stderr = decode_bytes(result.stderr)
@@ -173,16 +188,61 @@ class ClaudeCodeModelClient:
                 f"claude -p exited with code {result.returncode}: {stderr.strip()}"
             )
 
-        return stdout.strip()
+        return self._parse_stream_json(stdout, on_tool_use)
+
+    @staticmethod
+    def _parse_stream_json(
+        stdout: str,
+        on_tool_use: Callable[[dict], None] | None = None,
+    ) -> str:
+        """stream-json NDJSON 출력을 파싱해 최종 응답 텍스트를 반환.
+
+        - type="assistant" 블록에서 tool_use 를 감지해 on_tool_use 콜백 호출
+        - type="result", subtype="success" 에서 최종 텍스트 추출
+        - 파싱 실패 시 raw stdout 으로 fallback
+        """
+        result_text = ""
+        for raw_line in stdout.splitlines():
+            line = raw_line.strip()
+            if not line:
+                continue
+            try:
+                obj = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+
+            obj_type = obj.get("type")
+
+            if obj_type == "assistant":
+                content = obj.get("message", {}).get("content", [])
+                if isinstance(content, list):
+                    for block in content:
+                        if (
+                            isinstance(block, dict)
+                            and block.get("type") == "tool_use"
+                            and on_tool_use
+                        ):
+                            on_tool_use({
+                                "name": block.get("name", "Unknown"),
+                                "input": block.get("input", {}),
+                            })
+            elif obj_type == "result" and obj.get("subtype") == "success":
+                result_text = obj.get("result", "")
+
+        # stream-json 형식이 예상과 다를 경우 raw stdout 으로 fallback
+        return result_text.strip() or stdout.strip()
 
     @staticmethod
     def _serialize(messages: list[dict]) -> str:
         """대화 히스토리를 '화자: 내용\\n화자: 내용' 형식으로 직렬화."""
         lines: list[str] = []
         for msg in messages:
-            if msg.get("slug") == "__moderator__":
+            slug = msg.get("slug")
+            if slug == "__moderator__":
                 speaker = "[사회자]"
+            elif slug == "__memory__":
+                speaker = "[과거 발언 참고]"
             else:
-                speaker = msg.get("speaker") or msg.get("slug") or "Unknown"
+                speaker = msg.get("speaker") or slug or "Unknown"
             lines.append(f"{speaker}: {msg['content']}")
         return "\n".join(lines)
