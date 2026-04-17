@@ -236,6 +236,7 @@ class MeetingOrchestrator:
                 tool_input=tool_info.get("input", {}),
                 slug=agent.config.slug,
                 speaker=agent.config.name,
+                failed=tool_info.get("failed", False),
             )
 
         try:

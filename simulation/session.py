@@ -76,6 +76,25 @@ class MeetingSession:
         if self._emit:
             self._emit({"type": "message", "speaker": speaker, "slug": slug, "content": content})
 
+    def stream_tool_use(
+        self,
+        tool_name: str,
+        tool_input: dict,
+        slug: str,
+        speaker: str,
+        failed: bool = False,
+    ) -> None:
+        """도구 사용 이벤트를 SSE 로 전달합니다. CLI 경로에서는 아무것도 하지 않습니다."""
+        if self._emit:
+            self._emit({
+                "type": "tool_use",
+                "tool_name": tool_name,
+                "tool_input": tool_input,
+                "slug": slug,
+                "speaker": speaker,
+                "failed": failed,
+            })
+
     def stream_moderator(self, content: str) -> None:
         """사회자 발언 출력."""
         self._print(f"\n[사회자] {content}")

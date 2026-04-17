@@ -32,13 +32,34 @@
               <span class="pre-msg">{{ f.message }}</span>
             </li>
           </ul>
-          <!-- Fix 2: Show preprocessing error message -->
           <p v-if="preprocessError" class="pre-error">{{ preprocessError }}</p>
+        </div>
+
+        <!-- 웹 사전 검색 상태 -->
+        <div v-if="searchingStatus !== 'idle'" class="preprocessing-panel searching-panel fade-in-up">
+          <p class="pre-title">
+            <span class="pre-spinner" v-if="searchingStatus === 'running'" />
+            <span v-else class="pre-check" :class="{ done: searchFound }">{{ searchFound ? '✓' : '○' }}</span>
+            {{
+              searchingStatus === 'running' ? '웹 검색 중...' :
+              searchFound ? '웹 검색 완료 — 결과를 회의 자료로 주입했습니다' :
+              '웹 검색 결과 없음 — 학습 데이터 기반으로 진행합니다'
+            }}
+          </p>
         </div>
 
         <template v-for="(item, i) in feed" :key="i">
           <PhaseHeader v-if="item.type === 'phase'" :label="item.label" />
           <ConsensusCard v-else-if="item.type === 'consensus'" :content="item.content" />
+          <ToolUseBubble
+            v-else-if="item.type === 'tool_use'"
+            :speaker="item.speaker ?? ''"
+            :slug="item.slug ?? ''"
+            :tool-name="item.tool_name ?? ''"
+            :tool-input="item.tool_input ?? {}"
+            :failed="item.tool_failed ?? false"
+            :color="store.colorOf(item.slug ?? '')"
+          />
           <ChatBubble
             v-else
             :type="item.type"
@@ -74,13 +95,17 @@ import MeetingSidebar from '../components/MeetingSidebar.vue'
 import ChatBubble from '../components/ChatBubble.vue'
 import PhaseHeader from '../components/PhaseHeader.vue'
 import ConsensusCard from '../components/ConsensusCard.vue'
+import ToolUseBubble from '../components/ToolUseBubble.vue'
 
 interface FeedItem {
-  type: 'phase' | 'moderator' | 'message' | 'consensus'
+  type: 'phase' | 'moderator' | 'message' | 'consensus' | 'tool_use'
   label?: string
   content?: string
   speaker?: string
   slug?: string
+  tool_name?: string
+  tool_input?: Record<string, unknown>
+  tool_failed?: boolean
 }
 
 interface PreprocessingFile {
@@ -104,6 +129,8 @@ const preprocessingFiles = ref<PreprocessingFile[]>([])
 const preprocessError = ref<string | null>(null)
 const isPreprocessing = computed(() => preprocessingFiles.value.some(f => !f.done))
 const attachedFiles = ref<string[]>([])
+const searchingStatus = ref<'idle' | 'running' | 'done'>('idle')
+const searchFound = ref(false)
 
 // Fix 1: SSE EventSource as a ref so it is trackable across all exit paths
 const es = ref<EventSource | null>(null)
@@ -202,6 +229,20 @@ onMounted(async () => {
     } else if (event.type === 'moderator') {
       activeSpeaker.value = ''
       feed.value.push({ type: 'moderator', content: event.content as string })
+    } else if (event.type === 'searching') {
+      searchingStatus.value = event.status as 'running' | 'done'
+      if (event.status === 'done') {
+        searchFound.value = (event.found as boolean) ?? false
+      }
+    } else if (event.type === 'tool_use') {
+      feed.value.push({
+        type: 'tool_use',
+        speaker: event.speaker as string,
+        slug: event.slug as string,
+        tool_name: event.tool_name as string,
+        tool_input: event.tool_input as Record<string, unknown>,
+        tool_failed: (event.failed as boolean) ?? false,
+      })
     } else if (event.type === 'message') {
       activeSpeaker.value = event.slug as string
       feed.value.push({
@@ -287,6 +328,19 @@ function startFollowUp(): void {
   margin-bottom: 20px;
   background: var(--gray-50);
 }
+
+/* 웹 검색 패널 — 파란색 계열로 구분 */
+.searching-panel {
+  background: #EFF6FF;
+  border-color: #BFDBFE;
+}
+.searching-panel .pre-title { color: #2563EB; }
+.searching-panel .pre-spinner {
+  border-color: #BFDBFE;
+  border-top-color: #2563EB;
+}
+.searching-panel .pre-check { color: #93C5FD; }
+.searching-panel .pre-check.done { color: #2563EB; }
 .pre-title {
   font-family: var(--font-mono);
   font-size: 11px;

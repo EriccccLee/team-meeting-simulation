@@ -158,7 +158,7 @@ class ClaudeCodeModelClient:
                 "--system-prompt-file", sp_file.name,
                 "--output-format", "stream-json",  # NDJSON — tool use 감지 가능
                 "--verbose",                        # stream-json 은 --verbose 필수
-                "--tools", "WebSearch",             # WebSearch 활성화
+                "--tools", "",                      # 도구 비활성화 (실제 검색은 pre-search 단계에서 처리)
                 "--no-session-persistence",
             ]
             if _IS_WINDOWS:
@@ -197,11 +197,14 @@ class ClaudeCodeModelClient:
     ) -> str:
         """stream-json NDJSON 출력을 파싱해 최종 응답 텍스트를 반환.
 
-        - type="assistant" 블록에서 tool_use 를 감지해 on_tool_use 콜백 호출
-        - type="result", subtype="success" 에서 최종 텍스트 추출
-        - 파싱 실패 시 raw stdout 으로 fallback
+        tool_use 콜백은 모든 라인 파싱 완료 후 호출됩니다.
+        result 의 usage.server_tool_use 를 확인해 실제 검색이 실행됐는지 판단하고
+        failed 필드를 포함해 콜백을 호출합니다.
         """
         result_text = ""
+        result_usage: dict = {}
+        pending_tool_uses: list[dict] = []   # 콜백은 모든 파싱 후 일괄 호출
+
         for raw_line in stdout.splitlines():
             line = raw_line.strip()
             if not line:
@@ -217,17 +220,29 @@ class ClaudeCodeModelClient:
                 content = obj.get("message", {}).get("content", [])
                 if isinstance(content, list):
                     for block in content:
-                        if (
-                            isinstance(block, dict)
-                            and block.get("type") == "tool_use"
-                            and on_tool_use
-                        ):
-                            on_tool_use({
+                        if isinstance(block, dict) and block.get("type") == "tool_use":
+                            pending_tool_uses.append({
                                 "name": block.get("name", "Unknown"),
                                 "input": block.get("input", {}),
                             })
             elif obj_type == "result" and obj.get("subtype") == "success":
                 result_text = obj.get("result", "")
+                result_usage = obj.get("usage", {})
+
+        # 실제 실행 횟수로 실패 여부 판단
+        if on_tool_use and pending_tool_uses:
+            server_use = result_usage.get("server_tool_use", {})
+            web_search_count = server_use.get("web_search_requests", -1)
+            web_fetch_count = server_use.get("web_fetch_requests", -1)
+
+            for tool_event in pending_tool_uses:
+                name = tool_event["name"]
+                failed = False
+                if name == "WebSearch" and web_search_count == 0:
+                    failed = True
+                elif name == "WebFetch" and web_fetch_count == 0:
+                    failed = True
+                on_tool_use({**tool_event, "failed": failed})
 
         # stream-json 형식이 예상과 다를 경우 raw stdout 으로 fallback
         return result_text.strip() or stdout.strip()

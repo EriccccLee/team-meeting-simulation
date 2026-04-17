@@ -34,6 +34,7 @@ start.bat     # 서버 실행 + 브라우저 자동 오픈
 - [시작 방법](#시작-방법)
 - [Slack 팀원 프로필 추출](#slack-팀원-프로필-추출)
 - [회의 시뮬레이션 사용법](#회의-시뮬레이션-사용법)
+- [웹 사전 검색 (DuckDuckGo)](#웹-사전-검색-duckduckgo)
 - [Slack 메시지 기반 발언 (BM25 검색)](#slack-메시지-기반-발언-bm25-검색)
 - [작동 원리](#작동-원리)
 - [디렉터리 구조](#디렉터리-구조)
@@ -173,6 +174,29 @@ Slack 없이 직접 프로필을 작성하려면 `team-skills/` 아래 폴더를
 
 ---
 
+## 웹 사전 검색 (DuckDuckGo)
+
+회의 시작 전 안건을 자동으로 웹 검색해 결과를 모든 에이전트의 컨텍스트에 주입합니다.
+
+- **추가 API 키 없음**: DuckDuckGo 무료 검색 (`ddgs` 패키지)
+- **한국어 결과 최적화**: `region=kr-kr` 설정으로 국내 맛집·정보 사이트 우선 반환
+- **할루시네이션 방지**: 검색 결과가 있으면 에이전트에게 "결과를 인용하고 없는 정보는 명시", 결과가 없으면 "고유명사를 지어내지 말 것" 지침을 자동 적용
+- **UI 표시**: 회의 시작 전 파란색 패널로 검색 진행 상황을 실시간 표시
+
+```
+안건 입력
+  ↓
+DuckDuckGo 검색 (region=kr-kr)
+  ↓
+검색 결과를 "웹 검색 결과.md"로 변환
+  ↓
+모든 에이전트 system prompt에 주입
+  ↓
+에이전트들이 실제 검색 결과 기반으로 발언
+```
+
+---
+
 ## Slack 메시지 기반 발언 (BM25 검색)
 
 시뮬레이션 실행 시 각 팀원의 과거 Slack 메시지를 자동으로 검색해 에이전트 발언에 반영합니다.
@@ -264,6 +288,19 @@ Stage 2 (병렬):
 프론트엔드: EventSource 구독 → 실시간 UI 업데이트
 ```
 
+SSE 이벤트 종류:
+
+| type | 설명 |
+|------|------|
+| `preprocessing` | 첨부 파일 변환 진행 상황 |
+| `searching` | 웹 사전 검색 진행 상황 (`status: running/done`, `found: bool`) |
+| `phase` | Phase 1/2/3 전환 |
+| `moderator` | 사회자 발언 |
+| `message` | 팀원 발언 |
+| `tool_use` | 에이전트 도구 사용 (`failed: bool` 포함) |
+| `done` | 시뮬레이션 완료 |
+| `error` | 오류 발생 |
+
 ---
 
 ## 디렉터리 구조
@@ -285,6 +322,8 @@ team-meeting-simulation/
 │   ├── orchestrator.py     # 3단계 회의 흐름 제어
 │   ├── session.py          # 회의록 생성 및 SSE emit
 │   ├── model_client.py     # claude -p subprocess 래퍼
+│   ├── searcher.py         # DuckDuckGo 웹 사전 검색
+│   ├── retriever.py        # BM25 Slack 메시지 검색
 │   ├── slack_collector.py  # Slack 메시지 수집 및 프로필 추출
 │   └── loader.py           # 팀원 설정 및 첨부 파일 로딩
 ├── team-skills/            # 팀원 프로필 폴더 (1명 = 1폴더)

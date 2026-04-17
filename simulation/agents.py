@@ -47,6 +47,19 @@ class MeetingAgent:
                 parts.append(f"### {filename}\n\n{content}\n")
             file_section = "\n".join(parts)
 
+        has_search_results = any(
+            "웹 검색 결과" in fname for fname in file_contents
+        )
+        search_note = (
+            "첨부된 '웹 검색 결과'를 바탕으로 발언하세요. "
+            "검색 결과에 있는 정보는 적극 인용하고, 검색 결과에 없는 내용은 "
+            "'확인이 필요합니다'라고 명시하세요."
+            if has_search_results else
+            "웹 검색 결과가 없습니다. "
+            "특정 식당명·장소명·상품명 등 실제 존재 여부를 확인할 수 없는 "
+            "고유명사를 지어내지 마세요. 불확실한 정보는 '직접 확인이 필요합니다'라고 명시하세요."
+        )
+
         self._system_prompt = (
             f"{self.config.skill_md}\n\n"
             "---\n\n"
@@ -56,7 +69,8 @@ class MeetingAgent:
             f"{file_section}\n"
             "위 정체성과 말투를 유지하며 회의에 참여하세요.\n"
             "다른 팀원의 발언에 반응할 때도 본인 캐릭터를 일관되게 유지하세요.\n"
-            "간결하게 발언하세요 (3~5문장 권장)."
+            "간결하게 발언하세요 (3~5문장 권장).\n\n"
+            f"[정보 신뢰성 지침] {search_note}"
         )
 
     def respond(

@@ -11,6 +11,7 @@ import asyncio
 import datetime
 import io
 import json
+import logging
 import queue as stdlib_queue
 import re
 import sys
@@ -19,6 +20,8 @@ import time
 import uuid
 from pathlib import Path
 from typing import Annotated
+
+logger = logging.getLogger(__name__)
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
@@ -29,6 +32,7 @@ from simulation.agents import MeetingAgent, ModeratorAgent
 from simulation.model_client import ClaudeCodeModelClient, decode_bytes, run_claude_prompt
 from simulation.orchestrator import MeetingOrchestrator, OrchestratorConfig
 from simulation.retriever import SlackRetriever
+from simulation.searcher import pre_search
 from simulation.session import MeetingSession
 from simulation.loader import load_agent_config as _load_agent_config, load_file_contents as _load_file_contents
 
@@ -289,7 +293,21 @@ def _run_simulation(
                 # 텍스트 계열 (.md, .txt 등) — 전처리 이벤트 없음
                 file_contents[filename] = decode_bytes(raw)
 
-        # ── 2. 시뮬레이션 실행 ────────────────────────────────────────────────
+        # ── 2. 웹 사전 검색 ───────────────────────────────────────────────────
+        if not _cancel_flags.get(session_id):
+            emit({"type": "searching", "status": "running"})
+            try:
+                search_md = pre_search(topic)
+            except Exception as e:
+                logger.error("pre_search 예외: %s", e)
+                search_md = None
+            if search_md:
+                file_contents["웹 검색 결과.md"] = search_md
+                emit({"type": "searching", "status": "done", "found": True})
+            else:
+                emit({"type": "searching", "status": "done", "found": False})
+
+        # ── 3. 시뮬레이션 실행 ────────────────────────────────────────────────
         model_client = ClaudeCodeModelClient()
         agents: list[MeetingAgent] = []
         for slug in participant_slugs:
