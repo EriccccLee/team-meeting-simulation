@@ -733,14 +733,15 @@ async function startSimulation(): Promise<void> {
   bottom: calc(100% + 10px);
   left: 50%;
   transform: translateX(-50%);
-  background: var(--gray-900);
-  color: #fff;
+  background: #333;
+  color: #ffffff;
   font-size: 12px;
+  font-weight: 400;
   padding: 8px 12px;
   border-radius: 4px;
   white-space: nowrap;
   z-index: 1000;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
 }
 .tooltip-box::after {
   content: '';
@@ -752,7 +753,7 @@ async function startSimulation(): Promise<void> {
   height: 0;
   border-left: 5px solid transparent;
   border-right: 5px solid transparent;
-  border-top: 5px solid var(--gray-900);
+  border-top: 5px solid #333;
 }
 .help-wrapper:hover .tooltip-box {
   display: block;
