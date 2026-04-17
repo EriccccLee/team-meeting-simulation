@@ -22,8 +22,8 @@
 
         <!-- NEW SECTION: Web Search Toggle -->
         <div class="field">
-          <label class="checkbox-label">
-            <input type="checkbox" v-model="enableWebSearch" />
+          <label class="checkbox-label" for="enableWebSearch">
+            <input id="enableWebSearch" type="checkbox" v-model="enableWebSearch" />
             <span class="checkbox-text">🔍 웹 검색 포함 <span class="optional">(선택)</span></span>
           </label>
           <p class="checkbox-hint">안건을 웹에서 미리 검색해 컨텍스트에 반영합니다</p>
@@ -690,14 +690,22 @@ async function startSimulation(): Promise<void> {
   accent-color: var(--orange);
   cursor: pointer;
 }
+.checkbox-label input[type="checkbox"]:focus {
+  outline: 2px solid var(--orange);
+  outline-offset: 2px;
+}
+.checkbox-label:hover input[type="checkbox"] {
+  box-shadow: 0 0 0 3px rgba(255, 165, 0, 0.1);
+}
 .checkbox-text {
   font-size: 14px;
   color: var(--gray-800);
 }
 .checkbox-hint {
-  margin: 6px 0 0 26px;
+  margin: 6px 0 0 0;
+  padding-left: 26px;
   font-size: 12px;
-  color: var(--gray-500);
+  color: var(--gray-600);
   line-height: 1.5;
 }
 </style>
