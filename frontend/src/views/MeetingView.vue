@@ -51,6 +51,10 @@
         <template v-for="(item, i) in feed" :key="i">
           <PhaseHeader v-if="item.type === 'phase'" :label="item.label" />
           <ConsensusCard v-else-if="item.type === 'consensus'" :content="item.content" />
+          <ParticipantInfoCard
+            v-else-if="item.type === 'participant_info'"
+            :participants="item.participants ?? []"
+          />
           <ToolUseBubble
             v-else-if="item.type === 'tool_use'"
             :speaker="item.speaker ?? ''"
@@ -96,10 +100,11 @@ import MeetingSidebar from '../components/MeetingSidebar.vue'
 import ChatBubble from '../components/ChatBubble.vue'
 import PhaseHeader from '../components/PhaseHeader.vue'
 import ConsensusCard from '../components/ConsensusCard.vue'
+import ParticipantInfoCard from '../components/ParticipantInfoCard.vue'
 import ToolUseBubble from '../components/ToolUseBubble.vue'
 
 interface FeedItem {
-  type: 'phase' | 'moderator' | 'message' | 'consensus' | 'tool_use'
+  type: 'phase' | 'moderator' | 'message' | 'consensus' | 'tool_use' | 'participant_info'
   label?: string
   content?: string
   speaker?: string
@@ -108,6 +113,7 @@ interface FeedItem {
   tool_input?: Record<string, unknown>
   tool_failed?: boolean
   evidence?: string[]
+  participants?: Array<{ name: string; slug: string; stance: string }>
 }
 
 interface PreprocessingFile {
@@ -236,6 +242,11 @@ onMounted(async () => {
       if (event.status === 'done') {
         searchFound.value = (event.found as boolean) ?? false
       }
+    } else if (event.type === 'participant_info') {
+      feed.value.push({
+        type: 'participant_info',
+        participants: (event.participants as Array<{ name: string; slug: string; stance: string }>) ?? [],
+      })
     } else if (event.type === 'tool_use') {
       feed.value.push({
         type: 'tool_use',

@@ -127,7 +127,19 @@ class MeetingOrchestrator:
                 except Exception as e:
                     logger.error("[%s] Stance 결정 실패: %s", agent.config.slug, e)
 
-        # Step 2: Stance 결정 후 각 에이전트의 system prompt 구성
+        # Step 2: Stance 결정 후 팀원 정보 표시
+        logger.info("팀원 정보 및 초기 스탠스 표시 중...")
+        participants_info = [
+            {
+                "name": agent.config.name,
+                "slug": agent.config.slug,
+                "stance": agent._stance or "pending",
+            }
+            for agent in self.agents
+        ]
+        self.session.stream_participant_info(participants_info)
+
+        # Step 3: 각 에이전트의 system prompt 구성
         logger.info("System prompt 구성 중...")
         for agent in self.agents:
             if self._cancel_check():
@@ -290,7 +302,17 @@ class MeetingOrchestrator:
                 for msg in history[-3:]
                 if msg.get("slug") not in ("__moderator__", "__memory__")
             )
-            query = f"{topic} {recent_content}".strip()
+
+            # Stance 기반 검색 쿼리 강화 (신뢰도 향상)
+            stance_hint = ""
+            if agent._stance == "oppose":
+                stance_hint = " 반대 문제 위험 우려 비용 부족"
+            elif agent._stance == "support":
+                stance_hint = " 동의 지지 가능 효과 이점 추진"
+            elif agent._stance == "neutral":
+                stance_hint = " 조건 검토 확인 부족 개선 신중"
+
+            query = f"{topic}{stance_hint} {recent_content}".strip()
             retrieved = self.retriever.search(agent.config.slug, query)
 
         def _on_tool_use(tool_info: dict) -> None:

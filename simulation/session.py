@@ -111,6 +111,21 @@ class MeetingSession:
                 "failed": failed,
             })
 
+    def stream_participant_info(
+        self,
+        participants: list[dict],
+    ) -> None:
+        """Phase 1 시작 전 각 팀원의 역할과 스탠스를 표시합니다.
+
+        Args:
+            participants: [{"name": "...", "slug": "...", "role": "...", "stance": "..."}, ...]
+        """
+        if self._emit:
+            self._emit({
+                "type": "participant_info",
+                "participants": participants,
+            })
+
     def stream_moderator(self, content: str) -> None:
         """사회자 발언 출력."""
         self._print(f"\n[사회자] {content}")
