@@ -1,7 +1,6 @@
 """simulation/retriever.py 단위 테스트."""
 import json
 import sys
-import tempfile
 from pathlib import Path
 
 import pytest
@@ -32,6 +31,7 @@ class TestSlackRetrieverLoad:
             "alice": ["RAG 시스템 구축 중입니다", "Neo4j 연동 테스트 완료"]
         })
         retriever = SlackRetriever(team_dir)
+        # _indexes는 구현 내부 계약: slug → (BM25Okapi, messages) 구조 강제
         assert "alice" in retriever._indexes
 
     def test_unknown_slug_returns_empty(self, tmp_path):
@@ -45,12 +45,14 @@ class TestSlackRetrieverLoad:
         """slack_messages.json 없는 멤버 디렉토리는 건너뛰어야 한다."""
         (tmp_path / "ghost").mkdir()  # json 파일 없음
         retriever = SlackRetriever(tmp_path)
+        # _indexes는 구현 내부 계약: slug → (BM25Okapi, messages) 구조 강제
         assert "ghost" not in retriever._indexes
 
     def test_skips_empty_messages(self, tmp_path):
         """content가 비어있는 메시지는 인덱싱하지 않아야 한다."""
         team_dir = _make_team_dir(tmp_path, {"alice": ["", "   "]})
         retriever = SlackRetriever(team_dir)
+        # _indexes는 구현 내부 계약: slug → (BM25Okapi, messages) 구조 강제
         assert "alice" not in retriever._indexes
 
 
@@ -85,7 +87,11 @@ class TestSlackRetrieverSearch:
         assert results == []
 
     def test_no_match_returns_empty(self, tmp_path):
-        """전혀 관련 없는 쿼리는 빈 리스트를 반환해야 한다."""
+        """전혀 관련 없는 쿼리는 빈 리스트를 반환해야 한다.
+
+        구현체는 BM25 score > 0인 결과만 반환해야 한다.
+        score가 0이면 미포함 처리.
+        """
         team_dir = _make_team_dir(tmp_path, {
             "dave": ["오늘 날씨가 맑네요", "점심은 비빔밥"]
         })
@@ -95,6 +101,8 @@ class TestSlackRetrieverSearch:
 
 
 class TestSlackRetrieverTokenize:
+    """SlackRetriever._tokenize — @staticmethod 계약 검증."""
+
     def test_tokenizes_by_whitespace(self):
         """공백으로 토큰화해야 한다."""
         tokens = SlackRetriever._tokenize("RAG 시스템 구축")
